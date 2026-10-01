@@ -69,16 +69,22 @@ function game(t) {
   fs.writeFileSync(compiler, 'the compiler the game shipped');
   const manifest = beginManifest(gameDir, exePath, 'dxgi');
   manifest.route = 'feeder';
+  // A Windows directory of its own, the way a Proton prefix has one: the test
+  // must not depend on the machine it runs on having C:\Windows.
+  const windows = fs.mkdtempSync(path.join(os.tmpdir(), 'shader-windows-'));
+  t.after(() => fs.rmSync(windows, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(windows, 'System32'));
+  fs.writeFileSync(path.join(windows, 'System32', 'D3DCompiler_47.dll'), 'the system compiler');
   // Old beside the game, current in Windows - what the real machine looks like.
   const version = (file) => path.dirname(file) === gameDir ? OLD : CURRENT;
-  return { gameDir, exePath, compiler, manifest, version };
+  return { gameDir, exePath, compiler, manifest, version, windows };
 }
 
 test('the install retires the stale compiler and Restore gives it back', async (t) => {
-  const { gameDir, compiler, manifest, version } = game(t);
+  const { gameDir, compiler, manifest, version, windows } = game(t);
   const said = [];
   const acted = await retireOldShaderCompiler(manifest, gameDir, gameDir,
-    (code, params) => said.push([code, params]), version);
+    (code, params) => said.push([code, params]), version, windows);
 
   assert.equal(acted, true);
   assert.equal(fs.existsSync(compiler), false, 'the game now loads the copy in System32');

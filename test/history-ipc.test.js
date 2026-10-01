@@ -42,6 +42,9 @@ test('install/restore IPC records all backends, not failures/cancels, and valida
       return { chosen: target, exeCandidates: [target], hasNativeDlss: true };
     } },
     './src/core/compatibility': { assertSafeTarget() {}, hasAntiCheat: () => protectedTarget },
+    // These cover the Windows IPC contract; the Linux install path has its
+    // own tests (linux-route.test.js).
+    './src/core/host-platform': { platform: 'win32' },
     './src/core/install-guards': { assertGameClosed: async () => {}, antiCheatPresent: () => false, gpuInfo: async () => [{}], gpuSupported: () => true, gpuModelSupported: () => true, driverSupported: () => true },
     './src/shared/install-routes': { nativeDlssPresent: () => true, routesFor: () => ['native', 'feeder', 'optiscaler'], recommendedRoute: () => 'native' },
     './src/core/runtime-components.js': { missingVCRuntime: () => [], ensureLumenite: async () => null },

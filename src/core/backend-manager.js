@@ -21,7 +21,7 @@ function profileFile(gameDir, exePath, api, route) {
   // The profile file is named after the route, so this list is what decides
   // whether a route can keep its own settings at all - and a route missing
   // from it fails the install with nothing but "Invalid route".
-  if (!['native', 'feeder', 'optiscaler', 'renodx'].includes(route)) throw new Error('Invalid route');
+  if (!['native', 'feeder', 'optiscaler', 'renodx', 'dlssnr'].includes(route)) throw new Error('Invalid route');
   const id = crypto.createHash('sha256').update(`${path.relative(gameDir, exePath).toLowerCase()}|${api}`).digest('hex').slice(0, 24);
   return journal.safePath(gameDir, `_DLSS5_Backup/.profiles/${id}-${route}.json`);
 }
@@ -34,6 +34,8 @@ const CONFIG_FILE = /\.(ini|cfg|txt)$/i;
 function configPaths(gameDir, exePath, route) {
   const dir = path.dirname(exePath);
   if (route === 'optiscaler') return [path.join(dir, 'OptiScaler.ini')];
+  // Linux fork: dlssnr keeps its settings in ~/.config/dlssnr, not the game.
+  if (route === 'dlssnr') return [];
   const reshade = path.join(dir, 'ReShade.ini');
   const preset = ini.presetPath(dir, ini.readText(reshade));
   const files = [reshade, path.join(dir, 'dlss5-feed.cfg'), path.join(dir, 'host64', 'ReShade.ini')];
@@ -101,6 +103,13 @@ async function install(config, log = () => {}) {
   // ReShade's global Vulkan registration is not a game-local transaction.
   // Keep its existing recoverable partial manifest on failure instead of
   // rolling that manifest away while leaving a shared layer registered.
+  // Linux fork: the dlssnr route writes nothing into the game folder, only a
+  // manifest and a launch option; switching to or from it goes through
+  // Restore first, the same rule as the other Vulkan routes.
+  if (config.route === 'dlssnr') {
+    if (old && old.route !== 'dlssnr') throw Object.assign(new Error('errBackendVulkanSwitch'), { code: 'errBackendVulkanSwitch' });
+    return core.applySwap(config, log);
+  }
   if (config.api === 'vulkan' && config.route === 'feeder') {
     compatibility.assertLoaderCompatible(config, old);
     const profile = !old ? loadProfile(config) : {};

@@ -37,7 +37,57 @@ function executableLocked(exePath) {
   }
 }
 
-async function assertGameClosed(gameDir, exePath, runner = run, locked = executableLocked) {
+// Linux: which processes run something from inside the game folder. A native
+// game shows its own image through /proc/<pid>/exe. A Proton game's image is
+// wine's preloader, but its argv names the Windows executable - as
+// "Z:\\mnt\\games\\game.exe" or as a plain Unix path - and so does Steam's
+// "reaper ... proton waitforexitandrun /path/game.exe" wrapper around it.
+// Only image paths and .exe arguments count: an editor with ReShade.ini open
+// is not a running game.
+function linuxProcessesIn(gameDir, exePath, procRoot = '/proc') {
+  const root = path.resolve(gameDir).toLowerCase() + path.sep;
+  const unix = (item) => (/^[a-z]:\\/i.test(item) ? item.slice(2).replace(/\\/g, '/') : item);
+  const insideRoot = (item) => path.isAbsolute(item) && path.resolve(item).toLowerCase().startsWith(root);
+  const found = [];
+  let pids = [];
+  try { pids = fs.readdirSync(procRoot).filter((name) => /^\d+$/.test(name)); } catch { return found; }
+  for (const pid of pids) {
+    if (Number(pid) === process.pid) continue;
+    let argv = [];
+    try { argv = fs.readFileSync(path.join(procRoot, pid, 'cmdline'), 'utf8').split('\0').filter(Boolean); } catch { continue; }
+    let image = null;
+    try { image = fs.readlinkSync(path.join(procRoot, pid, 'exe')); } catch { /* another user's, or gone */ }
+    const exes = argv.map(unix).filter((arg) => /\.exe$/i.test(arg));
+    // Only an executable that is being run counts: argv[0] itself (how wine
+    // shows the game), or the program a launcher is told to run (wine /
+    // proton run|waitforexitandrun / steam reaper ... -- game.exe). A tool that
+    // merely has the path among its arguments - an editor, a file manager, a
+    // script - is not the game.
+    const launcher = /(?:^|\/)(?:wine(?:64)?(?:-preloader)?|wine64-preloader|proton|reaper|pressure-vessel-[\w-]+|steam-launch-wrapper|umu-run)$/i;
+    const executed = [];
+    if (argv[0]) executed.push(unix(argv[0]));
+    if (argv[0] && (launcher.test(argv[0]) || argv.slice(0, 3).some((arg) => launcher.test(arg)))) {
+      executed.push(...exes);
+    }
+    const running = (image && insideRoot(image)) || executed.some((arg) => /\.exe$/i.test(arg) && insideRoot(arg)) ||
+      executed.some((arg) => /(?:^|\/)dlss5-feed-host64\.exe$/i.test(arg));
+    if (!running) continue;
+    let comm = pid;
+    try { comm = fs.readFileSync(path.join(procRoot, pid, 'comm'), 'utf8').trim() || pid; } catch {}
+    found.push(`${comm} (${pid})`);
+  }
+  return found;
+}
+async function assertGameClosed(gameDir, exePath, runner = run, locked = executableLocked, platform = process.platform, procRoot = '/proc') {
+  // Linux: a Proton game is a wine process whose command line names the
+  // Windows executable, and its image is not locked against writes the way
+  // Windows locks it - so the lock probe below would always say "closed".
+  // /proc is the process list; read it directly.
+  if (platform === 'linux') {
+    const matches = linuxProcessesIn(gameDir, exePath, procRoot);
+    if (matches.length) throw Object.assign(new Error(`Close the game and helper first: ${matches.join(', ')}`), { code: 'errGameRunning' });
+    return;
+  }
   const powershell = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32/WindowsPowerShell/v1.0/powershell.exe');
   let data;
   try {
@@ -94,9 +144,9 @@ function driverNames(rows) { return (rows || []).map(row => `${row.name} - ${row
 function gpuModelSupported(rows) { return rows.some(blackwell); }
 function driverSupported(rows) { return rows.some(row => blackwell(row) && driverNumber(row) >= OPTI_DRIVER); }
 function gpuSupported(rows) { return gpuModelSupported(rows) && driverSupported(rows); }
-async function gpuInfo(runner = run) {
+async function gpuInfo(runner = run, platform = process.platform) {
   try {
-    const output = await runner('nvidia-smi.exe', ['--query-gpu=name,driver_version', '--format=csv,noheader']);
+    const output = await runner(platform === 'win32' ? 'nvidia-smi.exe' : 'nvidia-smi', ['--query-gpu=name,driver_version', '--format=csv,noheader']);
     return output.trim().split(/\r?\n/).filter(Boolean).map(line => {
       const [name, driver] = line.split(',').map(s => s.trim());
       return { name, driver };
@@ -119,4 +169,4 @@ function antiCheatPresent(gameDir) {
   }
   return false;
 }
-module.exports = { assertGameClosed, executableLocked, matchingProcesses, gpuInfo, gpuSupported, gpuModelSupported, driverSupported, driverNeuralFault, driverNames, antiCheatPresent };
+module.exports = { assertGameClosed, executableLocked, matchingProcesses, linuxProcessesIn, gpuInfo, gpuSupported, gpuModelSupported, driverSupported, driverNeuralFault, driverNames, antiCheatPresent };

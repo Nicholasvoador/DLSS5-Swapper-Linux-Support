@@ -17,12 +17,19 @@
   }
   function routesFor(target, api = target && target.api) {
     if (!target || ![32, 64].includes(target.bitness)) return [];
+    // Linux fork: a native Linux game has no ReShade - DLSS5VKLayer is the
+    // only way in, and only for Vulkan.
+    if (target.linuxNative) return api === 'vulkan' ? ['dlssnr'] : [];
     if (api === 'd3d10' || (api === 'dxgi' && target.apiLabel === 'DirectX 10')) return [];
     // DirectDraw and DX8 both reach modern hardware only through dgVoodoo's
     // 32-bit wrapper, so the Feeder route is the only one either can take.
     if (api === 'd3d8' || api === 'ddraw') return target.bitness === 32 ? ['feeder'] : [];
     if (['d3d9', 'opengl', 'vulkan'].includes(api)) {
       const list = !optiReason(target, api) ? ['feeder', 'optiscaler'] : ['feeder'];
+      // Linux fork: a Vulkan game under Proton can also take the dlssnr
+      // layer, which works on any Vulkan game with no ReShade at all. The
+      // flag is set by the main process on Linux only.
+      if (api === 'vulkan' && target.linuxHost) list.push('dlssnr');
       // The DLSS Tool presents on D3D9 itself - "D3D9 and D3D11 use a
       // same-adapter, device-only D3D12 endpoint" - so it does not need
       // dgVoodoo's translation the way the Feeder route does here. OpenGL and
@@ -47,6 +54,8 @@
   }
   function recommendedRoute(scan, target = scan.chosen) {
     const routes = routesFor(target);
+    if (routes.length === 1 && routes[0] === 'dlssnr') return 'dlssnr';
+    if (scan.install && scan.install.route === 'dlssnr' && routes.includes('dlssnr')) return 'dlssnr';
     const nativeDlss = nativeDlssPresent(scan);
     const wanted = scan.install && scan.install.route === 'feeder'
       ? 'feeder' : nativeDlss ? 'native' : 'feeder';

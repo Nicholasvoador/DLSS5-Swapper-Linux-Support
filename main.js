@@ -13,7 +13,14 @@ const os = require('os');
 const diagnostics = require('./src/core/diagnostics');
 const { scanGame } = require('./src/core/scan.js');
 const { discover, folder, dedupe, isInside, steam } = require('./src/library');
-const { contextForSteamGame, createSetupRunner } = require('./src/core/proton');
+const { contextForSteamGame, createSetupRunner, prefixWindowsDir } = require('./src/core/proton');
+// Linux fork: the payload is downloaded from the pinned upstream release, and
+// the Vulkan route is DLSS5VKLayer (dlssnr).
+const linuxPayload = require('./src/core/linux-payload');
+const dlssnr = require('./src/core/dlssnr');
+// main.js is also evaluated inside bare vm sandboxes by the tests, where
+// there may be no process object at all.
+const IS_LINUX = (require('./src/core/host-platform').platform || (typeof process !== 'undefined' ? process.platform : '')) === 'linux';
 const art = require('./src/steamart');
 const { backupRoot, saveActiveManifest, writeTracked, makeReShadeConfigWritable } = require('./src/core/apply.js');
 const { scanSource } = require('./src/core/scan.js');
@@ -208,7 +215,13 @@ function addonLibrary() {
 function payload(raw) {
   // Installed, the payload rides along as an extra resource; from source it
   // sits beside main.js.
-  for (const dir of [path.join(process.resourcesPath || '', 'payload'), path.join(__dirname, 'payload')]) {
+  const dirs = [path.join(process.resourcesPath || '', 'payload'), path.join(__dirname, 'payload')];
+  // Linux: downloaded on first run into userData, never bundled - and only
+  // used once the unpack is complete and from the pinned release.
+  const downloaded = IS_LINUX && typeof linuxPayload.payloadDir === 'function'
+    ? linuxPayload.payloadDir(app.getPath('userData')) : null;
+  if (downloaded && linuxPayload.ready(app.getPath('userData'))) dirs.unshift(downloaded);
+  for (const dir of dirs) {
     const probe = scanSource(dir);
     if (probe.ok) {
       const setup = fs.readdirSync(dir).find((f) => /^ReShade_Setup_.*_Addon\.exe$/i.test(f));
@@ -353,7 +366,8 @@ const payloadMissing = () => missingPayload({
   resourcesPath: process.resourcesPath || __dirname,
   appRoot: __dirname,
   portable: runningPortable(),
-  temp: app.getPath ? (() => { try { return app.getPath('temp'); } catch { return null; } })() : null
+  temp: app.getPath ? (() => { try { return app.getPath('temp'); } catch { return null; } })() : null,
+  payloadDir: IS_LINUX && typeof linuxPayload.payloadDir === 'function' ? linuxPayload.payloadDir(app.getPath('userData')) : null
 });
 
 function createWindow() {
@@ -455,6 +469,16 @@ app.whenReady().then(async () => {
   // who wants the app parked in the tray wants to see that it is.
   if (loadState().closeToTray !== false) ensureTray();
   if (communityUsed()) startNotices();
+  // Linux fork: fetch the DLSS 5 payload in the background on first run, and
+  // tell the window how it went.
+  if (IS_LINUX && !linuxPayload.ready(app.getPath('userData'))) {
+    const tell = (code, params = {}) => { try { win?.webContents.send('job', { code, params }); } catch { /* window gone */ } };
+    linuxPayload.ensurePayload(app.getPath('userData'), { log: tell })
+      .catch((error) => tell('payloadFailed', { error: error.message }));
+  }
+  // The overlay bridge listens on a Windows named pipe; there is nothing on
+  // Linux for it to talk to.
+  if (IS_LINUX) return;
   try {
     overlayBridge = await require('./src/overlay-bridge')({ BrowserWindow, userData: app.getPath('userData') });
     if (quitting) overlayBridge.close();
@@ -834,6 +858,14 @@ function heroFor(dir) {
 // label is the only place the two are told apart, so the label decides. What it
 // cannot decide - DirectX 10, bare DXGI, an executable that named no renderer -
 // is left for the person to choose rather than guessed at.
+// Linux fork: reports are tagged so they never read as Windows results on the
+// shared community server - "linux <kernel> proton" for a Windows game run
+// through Proton, "linux <kernel> native" for a native Linux game.
+function communityOs(scan) {
+  if (!IS_LINUX) return `${process.platform} ${os.release()}`;
+  const native = Boolean(scan && scan.chosen && scan.chosen.linuxNative);
+  return `linux ${os.release()} ${native ? 'native' : 'proton'}`;
+}
 function communityApi(chosen) {
   const label = String(chosen?.apiLabel || '');
   if (/11\/12/.test(label)) return null;
@@ -962,7 +994,7 @@ ipcMain.handle('community-prefill', async (_event, dir) => {
       api: communityApi(target),
       gpu: gpu.name || null, driver: gpu.driver || null,
       cpu: os.cpus()?.[0]?.model || null,
-      os: `${process.platform} ${os.release()}`, app: app.getVersion()
+      os: communityOs(scan), app: IS_LINUX ? `${app.getVersion()}-linux` : app.getVersion()
     } };
   });
 });
@@ -1605,12 +1637,15 @@ ipcMain.handle('update-check', async () => {
   if (updateAnswer) return updateAnswer;
   const current = app.getVersion();
   try {
-    const response = await fetch('https://api.github.com/repos/rakanki911/DLSS5-Swapper/releases/latest', {
+    const response = await fetch(IS_LINUX
+      ? 'https://api.github.com/repos/Nicholasvoador/DLSS5-Swapper-Linux-pre/releases?per_page=1'
+      : 'https://api.github.com/repos/rakanki911/DLSS5-Swapper/releases/latest', {
       headers: { 'User-Agent': `DLSS5-Swapper/${current}`, Accept: 'application/vnd.github+json' },
       signal: AbortSignal.timeout(8000)
     });
     if (!response.ok) throw Error(String(response.status));
-    const release = await response.json();
+    const body = await response.json();
+    const release = Array.isArray(body) ? (body[0] || {}) : body;
     const latest = String(release.tag_name || '').replace(/^v/, '');
     updateAnswer = { current, latest, newer: newerRelease(current, latest) };
   } catch {
@@ -1651,7 +1686,9 @@ ipcMain.handle('details', async (_event, dir) => {
     installedExe: scan.install && scan.install.exe,
     previousReShadeRoute: scan.install && scan.install.previousReShadeRoute,
     optiscaler: scan.install && scan.install.optiscaler,
-    recommendedRoute: installRoutes.recommendedRoute(scan),
+    recommendedRoute: installRoutes.recommendedRoute(scan, scan.chosen ? { ...scan.chosen, linuxHost: IS_LINUX } : scan.chosen),
+    platform: process.platform,
+    dlssnr: IS_LINUX ? (() => { try { return dlssnr.status(); } catch { return null; } })() : null,
     exes: scan.exeCandidates.map((e) => ({
       rel: e.rel, path: e.path, apiLabel: e.apiLabel, api: e.api,
       bitness: e.bitness, size: e.size, via: e.via,
@@ -1662,7 +1699,9 @@ ipcMain.handle('details', async (_event, dir) => {
       apiOverride: apiPreference(state, dir, e.path),
       reshadeProxy: reshadeProxyPreference(state, dir, e.path),
       apiChoices: e.apiChoices || [{ api: e.api, label: e.apiLabel }],
-      routes: installRoutes.routesFor({ ...e, hasNativeDlss })
+      linuxNative: Boolean(e.linuxNative),
+      linuxHost: IS_LINUX,
+      routes: installRoutes.routesFor({ ...e, hasNativeDlss, linuxHost: IS_LINUX })
     })),
     files,
     currentDlss: scan.primaryDlss ? {
@@ -1719,6 +1758,15 @@ async function exclusiveMutation(work) {
 }
 
 ipcMain.handle('install', (event, dir, exePath, requestedRoute, requestedApi) => exclusiveMutation(async () => {
+  // Linux fork: the payload is downloaded on first run. If that has not
+  // finished (or failed at boot), do it now, in front of the person.
+  if (IS_LINUX && typeof linuxPayload.ensurePayload === 'function' && !payload()) {
+    try {
+      await linuxPayload.ensurePayload(app.getPath('userData'), { log: (code, params) => event.sender.send('job', { code, params }) });
+    } catch (error) {
+      event.sender.send('job', { code: 'payloadFailed', params: { error: error.message } });
+    }
+  }
   const p = payload();
   if (!p) return { ok: false, ...payloadMissing() };
   const scan = await scanGame(dir);
@@ -1731,6 +1779,7 @@ ipcMain.handle('install', (event, dir, exePath, requestedRoute, requestedApi) =>
   const target = renderingApi.effective(detected, selection);
   compatibility.assertSafeTarget(dir, target.path);
   target.hasNativeDlss = installRoutes.nativeDlssPresent(scan);
+  target.linuxHost = IS_LINUX;
   const api = target.api;
   const availableRoutes = installRoutes.routesFor(target, api);
   if (requestedRoute === 'optiscaler' && !availableRoutes.includes('optiscaler')) {
@@ -1744,16 +1793,23 @@ ipcMain.handle('install', (event, dir, exePath, requestedRoute, requestedApi) =>
   // ReShade Setup is a Windows executable. On Linux, support Windows games
   // launched with Steam Play by using their existing Proton prefix; native
   // Linux games do not load the Windows DLSS/ReShade payload.
-  const protonGame = process.platform === 'linux'
+  const steamGame = IS_LINUX
     ? steam().find((game) => path.resolve(game.dir) === path.resolve(dir))
     : null;
-  const proton = contextForSteamGame(protonGame);
-  if (process.platform === 'linux' && !proton) {
-    return { ok: false, code: 'errProtonRequired', message: 'This installer supports Windows games launched through Steam Proton. Launch the game once with Proton, then try again.' };
+  const proton = route === 'dlssnr' ? null : contextForSteamGame(steamGame);
+  // Linux fork: the dlssnr route needs no prefix of the game's own - the
+  // helper runs in dlssnr's prefix - so a native game, or a Vulkan game never
+  // launched yet, can take it. Every ReShade route needs the game's prefix.
+  if (IS_LINUX && route !== 'dlssnr' && !proton) {
+    return { ok: false, code: 'errProtonRequired', message: 'This route installs ReShade into the game\'s Proton prefix. Launch the game once through Steam with Proton, close it, then try again.' };
   }
-  if (process.platform === 'linux' && api === 'vulkan') {
-    return { ok: false, code: 'errLinuxVulkanUnsupported', message: 'The Vulkan Feeder route needs a host Vulkan layer and is not supported on Linux yet. Select a DirectX renderer in the game.' };
+  // ReShade's own Vulkan layer is a Windows registry layer; on Linux Vulkan
+  // goes through dlssnr instead.
+  if (IS_LINUX && api === 'vulkan' && route !== 'dlssnr') {
+    return { ok: false, code: 'errLinuxVulkanUseLayer', message: 'On Linux, Vulkan games use the DLSS5VKLayer route. Choose it in the Route list.' };
   }
+  // The Windows Windows directory the game sees: its prefix's, on Linux.
+  const systemRoot = IS_LINUX ? prefixWindowsDir(proton) : (process.env.SystemRoot || 'C:\\Windows');
 
   const send = (e) => event.sender.send('job', e);
   await guards.assertGameClosed(dir, target.path);
@@ -1802,7 +1858,7 @@ ipcMain.handle('install', (event, dir, exePath, requestedRoute, requestedApi) =>
       buttons: [featureText('installOpti'), featureText('cancel')], defaultId: 1, cancelId: 1
     });
     if (confirmation.response !== 0) return { ok: false, cancelled: true };
-    const missing = missingVCRuntime(64, path.dirname(target.path), process.env.SystemRoot, ['msvcp140_atomic_wait.dll']);
+    const missing = missingVCRuntime(64, path.dirname(target.path), systemRoot, ['msvcp140_atomic_wait.dll']);
     if (missing.length) return { ok: false, code: 'runtimeRequiredHint', message: missing.join(', ') };
     send({ code: 'optiDownloading', params: {} });
     // A game may name an older pinned build. #238: No Man's Sky runs on
@@ -1825,7 +1881,7 @@ ipcMain.handle('install', (event, dir, exePath, requestedRoute, requestedApi) =>
     const checks = [[target.bitness, path.dirname(target.path)]];
     if (target.bitness === 32) checks.push([64, path.join(path.dirname(target.path), 'host64')]);
     for (const [bits, folder] of checks) {
-      const missing = missingVCRuntime(bits, folder);
+      const missing = missingVCRuntime(bits, folder, systemRoot);
       if (missing.length) {
         const response = await dialog.showMessageBox(win, {
           type: 'warning', title: 'Microsoft Visual C++ Runtime',
@@ -1833,7 +1889,11 @@ ipcMain.handle('install', (event, dir, exePath, requestedRoute, requestedApi) =>
           detail: `${bits === 32 ? 'x86' : 'x64'}\n${missing.join(', ')}\n${folder}`,
           buttons: [featureText('runtimeDownload'), featureText('cancel')], cancelId: 1, defaultId: 0
         });
-        if (response.response === 0) await shell.openExternal(`https://aka.ms/vc14/vc_redist.${bits === 32 ? 'x86' : 'x64'}.exe`);
+        // Linux: the runtime goes into the game's prefix with protontricks;
+        // the Microsoft installer is no use outside Windows.
+        if (response.response === 0) await shell.openExternal(IS_LINUX
+          ? 'https://github.com/Matoking/protontricks#usage'
+          : `https://aka.ms/vc14/vc_redist.${bits === 32 ? 'x86' : 'x64'}.exe`);
         return { ok: false, code: 'runtimeRequiredHint' };
       }
     }
@@ -1874,6 +1934,9 @@ ipcMain.handle('install', (event, dir, exePath, requestedRoute, requestedApi) =>
   // An unreadable preference means the overlay is off. A DLSS install must not
   // fail because of it.
   try { overlayWanted = require('./src/overlay-preferences').read(app.getPath('userData')).enabled === true; } catch {}
+  // Linux fork: the F8 panel reaches the app over a Windows named pipe, which
+  // a Proton game cannot open to a Linux process. Say so and leave it out.
+  if (IS_LINUX && overlayWanted) { overlayWanted = false; send({ code: 'overlayNotOnLinux', params: {} }); }
 
   let overlayPlan = null;
   if (overlayWanted) {
@@ -1925,6 +1988,11 @@ ipcMain.handle('install', (event, dir, exePath, requestedRoute, requestedApi) =>
       companions,
       reshadeSetup: p.reshadeSetup,
       setupRunner: proton ? createSetupRunner(proton) : undefined,
+      systemRoot,
+      // Linux fork: what the dlssnr route needs.
+      steamGame: steamGame ? { steamRoot: steamGame.steamRoot, id: steamGame.id } : null,
+      linuxNative: Boolean(target.linuxNative),
+      userData: app.getPath('userData'),
       vulkanLayerTarget: path.join(app.getPath('userData'), 'reshade-vulkan'),
       // DirectX 11 (#328) and the wrapped DirectX 8/9 titles that become
       // DirectX 11 inside dgVoodoo (#343). Not DirectX 12, which never loads

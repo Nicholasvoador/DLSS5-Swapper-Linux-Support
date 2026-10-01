@@ -1,7 +1,7 @@
 {
   "name": "dlss5-swapper",
-  "version": "2.2.9",
-  "description": "DLSS 5 (Neural Rendering) for your games - a library that finds them, and one click to install",
+  "version": "2.2.9-linux.1",
+  "description": "DLSS 5 (Neural Rendering) for your games on Linux - Proton games through ReShade/RenoDX/Feeder, Vulkan games through DLSS5VKLayer",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -12,15 +12,20 @@
     "payload": "node scripts/collect-payload.js",
     "prebuild": "npm run payload",
     "build": "electron-builder --win",
-    "build:linux": "electron-builder --linux AppImage deb",
+    "build:linux": "electron-builder --linux AppImage deb rpm --publish never",
     "icon": "electron scripts/make-icon.js",
     "build:portable": "electron-builder --win portable",
     "overlay:build": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-overlay.ps1",
-    "overlay:prepare": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/prepare-overlay.ps1"
+    "overlay:prepare": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/prepare-overlay.ps1",
+    "start:linux": "electron . --ozone-platform-hint=auto"
   },
-  "author": "Rakan Alkhaldi",
+  "author": {
+    "name": "Rakan Alkhaldi (upstream); Linux fork by Nicholasvoador",
+    "email": "nicholasvoador@users.noreply.github.com"
+  },
   "license": "MIT",
   "dependencies": {
+    "7zip-bin": "^5.2.0",
     "extract-zip": "^2.0.1"
   },
   "devDependencies": {
@@ -72,12 +77,34 @@
     "linux": {
       "target": [
         "AppImage",
-        "deb"
+        "deb",
+        "rpm"
       ],
       "category": "Game",
-      "maintainer": "Rakan Alkhaldi",
+      "maintainer": "Nicholasvoador <nicholasvoador@users.noreply.github.com>",
+      "vendor": "DLSS5-Swapper-Linux",
+      "synopsis": "DLSS 5 Neural Rendering installer for Linux games",
       "icon": "app_iocn.png",
-      "artifactName": "DLSS5-Swapper-${version}-${arch}.${ext}"
+      "executableName": "dlss5-swapper",
+      "artifactName": "DLSS5-Swapper-Linux-${version}-${arch}.${ext}",
+      "desktop": {
+        "entry": {
+          "Name": "DLSS 5 Swapper",
+          "Comment": "Install DLSS 5 Neural Rendering into your Linux and Proton games",
+          "Keywords": "DLSS;NVIDIA;RTX;ReShade;Proton;Vulkan;Steam;",
+          "StartupWMClass": "DLSS 5 Swapper"
+        }
+      },
+      "extraResources": [
+        {
+          "from": "addons",
+          "to": "addons",
+          "filter": [
+            "**/*"
+          ]
+        }
+      ],
+      "syncDesktopName": true
     },
     "compression": "maximum",
     "portable": {
@@ -97,6 +124,55 @@
       "deleteAppDataOnUninstall": true,
       "artifactName": "DLSS5-Swapper-Setup-${version}.exe",
       "include": "build/installer.nsh"
+    },
+    "asarUnpack": [
+      "node_modules/7zip-bin/linux/**"
+    ],
+    "deb": {
+      "depends": [
+        "libgtk-3-0",
+        "libnotify4",
+        "libnss3",
+        "libxss1",
+        "libxtst6",
+        "xdg-utils",
+        "libatspi2.0-0",
+        "libuuid1",
+        "libsecret-1-0"
+      ],
+      "recommends": [
+        "p7zip-full"
+      ]
+    },
+    "rpm": {
+      "depends": [
+        "gtk3",
+        "libnotify",
+        "nss",
+        "libXScrnSaver",
+        "libXtst",
+        "xdg-utils",
+        "at-spi2-core",
+        "libuuid",
+        "libsecret"
+      ],
+      "fpm": [
+        "--rpm-rpmbuild-define",
+        "_build_id_links none"
+      ]
+    },
+    "appImage": {
+      "artifactName": "DLSS5-Swapper-Linux-${version}-${arch}.${ext}"
     }
-  }
+  },
+  "allowScripts": {
+    "electron@33.4.11": true,
+    "electron-winstaller": false
+  },
+  "homepage": "https://github.com/Nicholasvoador/DLSS5-Swapper-Linux-pre",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Nicholasvoador/DLSS5-Swapper-Linux-pre.git"
+  },
+  "desktopName": "dlss5-swapper.desktop"
 }

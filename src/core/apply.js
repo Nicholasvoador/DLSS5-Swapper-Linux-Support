@@ -441,7 +441,7 @@ async function applyFeeder(config, log) {
   manifest.game.apiLabel = config.apiLabel;
   manifest.game.emulator = emulator || null;
 
-  await retireOldShaderCompiler(manifest, gameDir, exeDir, log);
+  await retireOldShaderCompiler(manifest, gameDir, exeDir, log, undefined, systemRootFor(config));
   const payloadByName = new Map(source.payload.map((file) => [file.name.toLowerCase(), file]));
   const neural = payloadByName.get('nvngx_dlssnr.dll');
   const dlss = payloadByName.get('nvngx_dlss.dll');
@@ -681,13 +681,30 @@ async function setAsideRivalConsumers(manifest, gameDir, dir, keep, log) {
 // Telling the person is not enough, so the file is retired into the backup the
 // same way any replaced file is, and Restore puts it back. Only ever when
 // Windows has a newer copy of its own to fall back on.
-async function retireOldShaderCompiler(manifest, gameDir, exeDir, log, readVersion = pe.getFileVersion) {
+// The Windows directory a game actually sees: the real one on Windows, the
+// Proton prefix's drive_c/windows on Linux (main.js passes it), else none.
+function systemRootFor(config) {
+  if (config && 'systemRoot' in config) return config.systemRoot || null;
+  return process.platform === 'win32' ? (process.env.SystemRoot || 'C:\\Windows') : null;
+}
+
+async function retireOldShaderCompiler(manifest, gameDir, exeDir, log, readVersion = pe.getFileVersion, systemRoot = systemRootFor(null)) {
   const stale = compatibility.oldShaderCompiler(exeDir, readVersion);
   if (!stale) return false;
-  const system = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'D3DCompiler_47.dll');
+  // On Linux there is no SystemRoot: the Windows a Proton game sees is its
+  // prefix's drive_c/windows, and the caller passes that in. Without one, keep
+  // the game's own compiler.
+  if (!systemRoot) return false;
+  const system = path.join(systemRoot, 'System32', 'D3DCompiler_47.dll');
   // Without a working copy in Windows, removing the game's own would leave the
   // game unable to compile anything at all. Leave it and say nothing.
   if (!fs.existsSync(system) || compatibility.oldShaderCompiler(path.dirname(system), readVersion)) return false;
+  // A Proton prefix's System32 copy may be Wine's own builtin, which carries
+  // no Microsoft version at all. Only a copy that reads as the modern
+  // compiler (10.x) is something better to fall back on.
+  let systemVersion = null;
+  try { systemVersion = readVersion(system); } catch { /* unreadable */ }
+  if (!/^(\d+)\./.test(String(systemVersion || '')) || Number(String(systemVersion).split('.')[0]) < 10) return false;
 
   const rel = await trackBeforeWrite(manifest, gameDir, stale.file, { oldVersion: stale.version, kind: 'shaderCompiler' });
   await saveActiveManifest(gameDir, manifest);
@@ -697,8 +714,56 @@ async function retireOldShaderCompiler(manifest, gameDir, exeDir, log, readVersi
   return true;
 }
 
+// Linux fork: the dlssnr route. Nothing is copied into the game - the layer
+// is installed per user, the neural model goes to dlssnr's own binaries
+// folder, and the game is started through the wrapper that turns the layer on.
+// The manifest records only what was changed outside the folder, so Restore
+// can take it back.
+async function applyDlssnr(config, log) {
+  const dlssnr = require('./dlssnr');
+  const { gameDir, exePath, api, source, steamGame, userData } = config;
+  if (!source || !source.hasNeuralRendering) throw fail('errNoNeuralRuntime');
+  let state = dlssnr.status();
+  if (!state.installed) {
+    state = await dlssnr.install({ userData, log, localTarball: config.dlssnrTarball });
+    if (!state.installed) throw fail('errDlssnrMissing');
+  } else {
+    log('dlssnrPresent', { helper: state.helper, version: state.version || 'external' });
+  }
+  await dlssnr.importModel(source.dir, { log });
+  const wrapper = dlssnr.ensureWrapper();
+  log('dlssnrWrapperReady', { wrapper });
+
+  const manifest = beginManifest(gameDir, exePath, api);
+  manifest.route = 'dlssnr';
+  manifest.game.apiLabel = config.apiLabel;
+  manifest.game.linuxNative = Boolean(config.linuxNative);
+  const option = dlssnr.launchOption(wrapper);
+  manifest.dlssnr = { version: state.version || null, wrapper, launchOption: option, steamRoot: null, appid: null };
+  if (steamGame && steamGame.steamRoot && steamGame.id) {
+    const result = dlssnr.addLaunchOption(steamGame.steamRoot, steamGame.id, { wrapper });
+    if (result.applied) {
+      manifest.dlssnr.steamRoot = steamGame.steamRoot;
+      manifest.dlssnr.appid = String(steamGame.id);
+      log('dlssnrLaunchOptionSet', { appid: steamGame.id, option: (result.changes.find((c) => c.after) || {}).after || option });
+    } else {
+      // Steam is open (it would overwrite the edit), or no Steam user found.
+      manifest.dlssnr.steamRoot = steamGame.steamRoot;
+      manifest.dlssnr.appid = String(steamGame.id);
+      manifest.dlssnr.manual = true;
+      log('dlssnrLaunchOptionManual', { appid: steamGame.id, option, reason: result.reason });
+    }
+  } else {
+    log('dlssnrRunManually', { command: `${wrapper} ${JSON.stringify(exePath)}` });
+  }
+  await saveActiveManifest(gameDir, manifest);
+  log('dlssnrReady', {});
+  return manifest;
+}
+
 async function applySwap(config, onLog) {
   const log = (code, params) => onLog && onLog({ code, params: params || {} });
+  if (config.route === 'dlssnr') return applyDlssnr(config, log);
   const bitness = config.bitness || pe.getBitness(config.exePath);
   if (bitness === 32 || config.route === 'feeder') return applyFeeder(config, log);
   const {
@@ -725,7 +790,7 @@ async function applySwap(config, onLog) {
   manifest.game.apiLabel = config.apiLabel;
   const setup = setupRunner || runSetup;
 
-  await retireOldShaderCompiler(manifest, gameDir, exeDir, log);
+  await retireOldShaderCompiler(manifest, gameDir, exeDir, log, undefined, systemRootFor(config));
 
   const payloadByName = new Map(source.payload.map((f) => [f.name.toLowerCase(), f]));
   const existing = scan.dlssFiles.filter(file => /^nvngx_dlss(?:nr)?\.dll$/i.test(file.name));
@@ -1075,6 +1140,16 @@ async function restore(gameDir, onLog) {
   if (manifest.vulkanLayer) {
     const removed = await vulkanLayer.detach(manifest.vulkanLayer, gameDir);
     log(removed ? 'vulkanLayerRemoved' : 'vulkanLayerKept');
+  }
+
+  // Linux fork: the dlssnr route changes nothing inside the game folder; it
+  // adds a launch option. Take it back off - or, with Steam running (Steam
+  // would write its own copy over the edit on exit), say what to remove.
+  if (manifest.dlssnr && manifest.dlssnr.steamRoot && manifest.dlssnr.appid) {
+    const dlssnr = require('./dlssnr');
+    const result = dlssnr.removeLaunchOption(manifest.dlssnr.steamRoot, manifest.dlssnr.appid);
+    if (result.applied) log('dlssnrLaunchOptionRemoved', { appid: manifest.dlssnr.appid });
+    else log('dlssnrLaunchOptionManualRemove', { appid: manifest.dlssnr.appid, option: manifest.dlssnr.launchOption || dlssnr.WRAPPER_NAME, reason: result.reason });
   }
 
   await fs.promises.rename(manifestPath, path.join(backupRoot(gameDir), `${MANIFEST}.done-${Date.now()}`));

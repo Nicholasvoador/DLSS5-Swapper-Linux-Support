@@ -13,6 +13,12 @@ function error(code) { return Object.assign(new Error(code), { code }); }
 
 function safePath(root, rel) {
   if (typeof rel !== 'string' || !rel || path.isAbsolute(rel) || rel.includes(':')) throw error('errUnsafeTarget');
+  // Manifests and profiles written on Windows name files with backslashes. On
+  // Linux a backslash is a legal filename character, so "..\\..\\evil.ini"
+  // would read as one harmless name in the game folder - and then be written
+  // as one. Read it the way it was meant: as a separator.
+  if (path.sep === '/') rel = rel.replace(/\\/g, '/');
+  if (path.isAbsolute(rel)) throw error('errUnsafeTarget');
   const dest = path.resolve(root, rel);
   const relative = path.relative(path.resolve(root), dest);
   if (!relative || relative === '..' || relative.startsWith('..' + path.sep) || path.isAbsolute(relative)) throw error('errUnsafeTarget');

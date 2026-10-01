@@ -75,13 +75,24 @@ function steamPoster(steamRoot, appid) {
 function linuxSteamRoots(home = os.homedir(), env = process.env) {
   // Steam has used both of these locations over time.  Do not resolve the
   // ~/.steam/steam symlink: its path is also useful to portable installs.
+  // But do not list the same Steam twice either - on a normal install
+  // ~/.steam/steam points straight at ~/.local/share/Steam, and every game
+  // came up twice.
   const dataHome = env.XDG_DATA_HOME || path.join(home, '.local', 'share');
+  const seen = new Set();
   return [...new Set([
     path.join(dataHome, 'Steam'),
     path.join(home, '.steam', 'steam'),
     // Flatpak keeps its Steam data outside XDG_DATA_HOME.
     path.join(home, '.var', 'app', 'com.valvesoftware.Steam', 'data', 'Steam')
-  ])].filter((dir) => fs.existsSync(path.join(dir, 'steamapps')));
+  ])].filter((dir) => {
+    if (!fs.existsSync(path.join(dir, 'steamapps'))) return false;
+    let real = dir;
+    try { real = fs.realpathSync(dir); } catch { /* keep the literal path */ }
+    if (seen.has(real)) return false;
+    seen.add(real);
+    return true;
+  });
 }
 
 function steam(options = {}) {
@@ -114,13 +125,20 @@ function steam(options = {}) {
         if (!appid || !installdir || NOT_A_GAME.test(name)) continue;
         const dir = path.join(appsDir, 'common', installdir);
         if (!fs.existsSync(dir)) continue;
+        // Steam keeps a game's prefix in the library the game is installed
+        // in, not under the client's own folder. Looking only at the root
+        // missed every game on a second drive.
+        const prefixIn = (library) => path.join(library, 'steamapps', 'compatdata', appid, 'pfx');
+        const protonPrefix = platform === 'linux'
+          ? [prefixIn(lib), prefixIn(base)].find((dir) => fs.existsSync(dir)) || prefixIn(lib)
+          : null;
         games.push({
           launcher: 'Steam', id: appid, name, dir, poster: steamPoster(base, appid),
           steamRoot: base,
           // A prefix only exists for titles launched through Steam Play. This
           // metadata lets the installer run the Windows ReShade setup in the
           // same Proton bottle as the game instead of invoking a host Wine.
-          protonPrefix: platform === 'linux' ? path.join(base, 'steamapps', 'compatdata', appid, 'pfx') : null
+          protonPrefix
         });
       }
     }

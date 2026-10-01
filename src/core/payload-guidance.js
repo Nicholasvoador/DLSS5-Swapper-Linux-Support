@@ -13,14 +13,29 @@
 // test over the wording - is BillyMRX1's, from PR #226. What is added here is
 // the portable case, which #220 turned up afterwards: running as administrator
 // fixed it, which rules out quarantine and points at the self-extraction.
-const path = require('node:path');
+//
+// Linux: the build never carries the payload. It is downloaded on first run
+// from the pinned upstream release (src/core/linux-payload.js), so the only
+// honest causes are the network and the disk.
+const nodePath = require('node:path');
 
 // The portable build unpacks itself here on every launch. The name is fixed as
 // of 2.2.4 so an antivirus exclusion survives an upgrade - which also means a
 // half-extracted folder survives one, and deleting it is the first thing to try.
 const PORTABLE_DIR = 'DLSS5-Swapper';
 
-function missingPayload({ packaged, resourcesPath, appRoot, portable = false, temp = null }) {
+function missingPayload({ packaged, resourcesPath, appRoot, portable = false, temp = null, platform = process.platform, payloadDir = null }) {
+  if (platform === 'linux') {
+    const where = payloadDir || nodePath.posix.join(packaged ? resourcesPath : appRoot, 'payload');
+    return {
+      code: 'errPayloadMissing',
+      message: `The DLSS 5 files this app installs into games are not downloaded yet (${where}). ` +
+        'They are fetched once from the pinned upstream DLSS5-Swapper release and checked against its SHA-256. ' +
+        'Check your internet connection and free disk space (about 600 MB while unpacking), then restart the app. No game files were changed.'
+    };
+  }
+  // The Windows wording names Windows paths, whichever OS the code runs on.
+  const path = nodePath.win32;
   const directory = path.join(packaged ? resourcesPath : appRoot, 'payload');
   if (!packaged) {
     return {

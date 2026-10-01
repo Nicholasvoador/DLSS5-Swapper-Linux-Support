@@ -28,6 +28,56 @@ const SKIP_DIRS = new Set([
 ]);
 const MAX_SCAN_DEPTH = 12;
 
+// Linux fork: is this an ELF executable, and which graphics API does it (or a
+// library shipped beside it) name? Engines usually keep the renderer in a
+// shared object (UnityPlayer.so, libgodot ...), so the folder of the binary is
+// read too, a few megabytes at most per file.
+function linuxNativeExecutable(file) {
+  let fd;
+  try {
+    fd = fs.openSync(file, 'r');
+    const head = Buffer.alloc(20);
+    if (fs.readSync(fd, head, 0, 20, 0) < 20) return null;
+    if (head.readUInt32BE(0) !== 0x7f454c46) return null;           // \x7fELF
+    const bitness = head[4] === 2 ? 64 : head[4] === 1 ? 32 : null;
+    const type = head.readUInt16LE(16);
+    if (!bitness || (type !== 2 && type !== 3)) return null;          // EXEC or DYN (PIE)
+    const size = fs.fstatSync(fd).size;
+    if (size < 8 * 1024) return null;                                 // launch stubs are scripts' business
+    const names = (buffer) => ({
+      vulkan: buffer.includes('libvulkan.so') || buffer.includes('vkCreateInstance'),
+      opengl: buffer.includes('libGL.so') || buffer.includes('libEGL.so') || buffer.includes('glXGetProcAddress')
+    });
+    const probe = (target) => {
+      try {
+        const stat = fs.statSync(target);
+        const length = Math.min(stat.size, 96 * 1024 * 1024);
+        const bytes = Buffer.alloc(length);
+        const handle = fs.openSync(target, 'r');
+        try { fs.readSync(handle, bytes, 0, length, 0); } finally { fs.closeSync(handle); }
+        return names(bytes);
+      } catch { return { vulkan: false, opengl: false }; }
+    };
+    let found = probe(file);
+    if (!found.vulkan) {
+      const dir = path.dirname(file);
+      let siblings = [];
+      try { siblings = fs.readdirSync(dir).filter((name) => /\.so(?:\.\d+)*$/.test(name)); } catch {}
+      for (const name of siblings.filter((n) => /unityplayer|godot|engine|render|ue4|ue5|libgame/i.test(n)).slice(0, 4)) {
+        const more = probe(path.join(dir, name));
+        found = { vulkan: found.vulkan || more.vulkan, opengl: found.opengl || more.opengl };
+        if (found.vulkan) break;
+      }
+    }
+    if (!found.vulkan && !found.opengl) return null;
+    return { bitness, size, ...found };
+  } catch {
+    return null;
+  } finally {
+    if (fd !== undefined) try { fs.closeSync(fd); } catch {}
+  }
+}
+
 // Installers, launchers and anti-cheat helpers are never the game itself.
 const NOT_A_GAME = /^(unins|setup|install|vcredist|vc_redist|dxsetup|dxwebsetup|oalinst|uninstall|crashreport|crashhandler|easyanticheat|eac|battleye|be_service|launcher|activation|patch|update|dotnetfx|touchup|rapidcrc|autorun|autoplay|quicksfv|readme|config|benchmark|report|helper|service|cleanup|modorganizer|redlauncher|skse\d*_loader|hlds\b|srcds\b|steamerrorreporter|dgvoodoocpl|reshade_setup)/i;
 
@@ -466,8 +516,13 @@ function playableRoleScore(exe) {
   return score;
 }
 
-async function scanGame(gameDir) {
+async function scanGame(gameDir, options = {}) {
   const exeCandidates = [];
+  // Linux fork: ELF executables found in the folder. Only used when the
+  // folder holds no Windows executable at all - a Proton game ships a Linux
+  // crash handler now and then, and that does not make it a native game.
+  const linuxNative = (options.platform || process.platform) === 'linux';
+  const nativeLinux = [];
   // Executables that are real PE binaries but name no rendering API. Kept
   // aside rather than thrown away: see the fallback below.
   const undetectedExes = [];
@@ -479,6 +534,14 @@ async function scanGame(gameDir) {
 
   await walk(gameDir, async (full, name, depth) => {
     const lower = name.toLowerCase();
+    if (linuxNative && (!lower.includes('.') || /\.x86(?:_64)?$/.test(lower))) {
+      // Linux fork: a native Linux game is an ELF executable. There is no
+      // ReShade for it - the only DLSS 5 route is the dlssnr Vulkan layer -
+      // so it is offered as a Vulkan target and nothing else.
+      const elf = depth <= 3 && !NOT_A_GAME.test(lower) ? linuxNativeExecutable(full) : null;
+      if (elf) nativeLinux.push({ ...elf, path: full, rel: path.relative(gameDir, full), name, depth });
+      return;
+    }
     if (lower.endsWith('.exe')) {
       if (NOT_A_GAME.test(lower)) return;
       let size = 0;
@@ -639,6 +702,23 @@ async function scanGame(gameDir) {
     // Always after the ones that did name an API, so the automatic choice is
     // never taken away from a game that was being detected correctly.
     exeCandidates.push(...offered);
+  }
+
+  // Linux fork: a folder with no Windows executable at all, but a native
+  // Linux game in it. The binary is offered as a Vulkan target - a game that
+  // renders with OpenGL is reported as such and is offered nothing.
+  if (!exeCandidates.length && nativeLinux.length) {
+    nativeLinux.sort((a, b) => (b.vulkan - a.vulkan) || (a.depth - b.depth) || (b.size - a.size));
+    for (const elf of nativeLinux.slice(0, 2)) {
+      const api = elf.vulkan ? 'vulkan' : (elf.opengl ? 'opengl' : null);
+      exeCandidates.push({
+        path: elf.path, rel: elf.rel, name: elf.name, size: elf.size, depth: elf.depth,
+        api, apiLabel: api === 'vulkan' ? 'Vulkan' : api === 'opengl' ? 'OpenGL' : null,
+        via: 'linux-native', dynamic: true, bitness: elf.bitness, dx12: false, emulator: null,
+        linuxNative: true,
+        apiChoices: elf.vulkan ? [{ api: 'vulkan', label: 'Vulkan' }] : []
+      });
+    }
   }
 
   const chosen = exeCandidates[0] || null;
@@ -815,7 +895,7 @@ function scanSource(sourceDir) {
 }
 
 module.exports = {
-  scanGame, scanSource, walk, selectPrimaryDlss, xboxExecutables, playableRoleScore, inspectReShade,
+  scanGame, scanSource, walk, selectPrimaryDlss, xboxExecutables, playableRoleScore, inspectReShade, linuxNativeExecutable,
   isVulkanWrapper, vulkanWrapperBeside,
   gameApiProfile, rdr2Renderer, rdr2SettingsFiles
 };

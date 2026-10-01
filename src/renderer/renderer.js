@@ -756,8 +756,10 @@ function selectedApi(pick, dir) {
 }
 
 function routesFor(pick) {
+  // linuxNative / linuxHost ride along from the main process (Linux fork).
   return window.installRoutes.routesFor(window.renderingApi.effective(pick, pick?.apiOverride || 'auto'));
 }
+const routeLabel = (item) => t(item === 'feeder' ? 'routeFeeder' : item === 'renodx' ? 'routeRenodx' : item === 'dlssnr' ? 'routeDlssnr' : 'routeNative');
 
 function selectedRoute(d, pick, dir) {
   const routes = routesFor(pick);
@@ -770,7 +772,7 @@ function selectedRoute(d, pick, dir) {
 function installLabel(d, pick, dir) {
   const route = pick && selectedRoute(d, pick, dir);
   if (d.installedRoute && route !== d.installedRoute) return t('applyBackend');
-  return route === 'optiscaler' ? t('installOpti') : t('install');
+  return route === 'optiscaler' ? t('installOpti') : route === 'dlssnr' ? t('installDlssnr') : t('install');
 }
 
 // Every note about this game in one box that can be put away. A warning still
@@ -828,12 +830,12 @@ function installOptions(d, pick, dir) {
   return `
     <div class="install-options" data-title="${esc(t('sheetSetup'))}">
       ${apiField}
-      <label><span>${t('fBackend')}</span><select id="backendChoice" aria-describedby="backendHint">
+      ${pick.linuxNative ? '' : `<label><span>${t('fBackend')}</span><select id="backendChoice" aria-describedby="backendHint">
         <option value="reshade"${opti ? '' : ' selected'}>${t('backendReShade')}</option>
         <option value="optiscaler"${opti ? ' selected' : ''}${optiReason ? ' disabled' : ''}>OptiScaler DLSS-NR</option>
-      </select></label>
+      </select></label>`}
       ${!opti ? `<label><span>${t('fRoute')}</span><select id="routeChoice">${routes.filter(item => item !== 'optiscaler').map((item) =>
-        `<option value="${item}"${item === route ? ' selected' : ''}>${t(item === 'feeder' ? 'routeFeeder' : item === 'renodx' ? 'routeRenodx' : 'routeNative')}</option>`).join('')}</select></label>
+        `<option value="${item}"${item === route ? ' selected' : ''}>${routeLabel(item)}</option>`).join('')}</select></label>
       ` : ''}
       ${!opti && RESHADE_PROXY_APIS.includes(api.api) && api.label !== 'DirectX 12' ? `<label><span>${t('fReshadeFile')}</span><select id="reshadeProxy">
         <option value="dxgi"${pick.reshadeProxy !== 'd3d11' ? ' selected' : ''}>dxgi.dll</option>
@@ -847,6 +849,7 @@ function installOptions(d, pick, dir) {
         ${optiReason ? `<span>${t(optiReason)}</span>` : ''}
         ${route === 'native' ? `<span>${t('nativeEffectsHint')}</span>` : ''}
         ${route === 'renodx' ? `<span>${t('routeRenodxHint')}</span>` : ''}
+        ${route === 'dlssnr' ? `<span>${t('routeDlssnrHint')}</span>` : ''}
         ${!opti && RESHADE_PROXY_APIS.includes(api.api) && pick.reshadeProxy === 'd3d11' ? `<span>${t(api.api === 'dxgi' ? 'reshadeProxyHint' : 'reshadeProxyWrapHint')}</span>` : ''}
         ${opti && (api.api === 'vulkan' || api.label === 'DirectX 11') ? `<span>${t('optiBridgeHint')}</span>` : ''}
         ${opti && api.api === 'vulkan' ? `<span>${t('optiVulkanHint')}</span>` : ''}
@@ -1555,7 +1558,13 @@ document.addEventListener('keydown', (e) => {
 // DirectX 11 games that ignore dxgi.dll (#328), and the wrapped DirectX 8/9
 // ones that become DirectX 11 inside dgVoodoo (#343).
 const RESHADE_PROXY_APIS = ['dxgi', 'd3d8', 'd3d9', 'ddraw'];
-const SPOKEN_JOB_CODES = new Set(['historySaveWarning', 'driverNeuralFault', 'oldShaderCompiler', 'overlaySkipped', 'feedVkLayerReady', 'neuralModelKept', 'rivalConsumerSetAside', 'overlayNotForRoute', 'multipassNext', 'forwarderRetired', 'optiDownloading', 'optiVerified', 'restoreRecovered']);
+const SPOKEN_JOB_CODES = new Set([
+  // Linux fork
+  'payloadDownloading', 'payloadProgress', 'payloadVerified', 'payloadReady', 'payloadFailed',
+  'dlssnrDownloading', 'dlssnrInstalled', 'dlssnrPresent', 'dlssnrModelImported', 'dlssnrWrapperReady',
+  'dlssnrLaunchOptionSet', 'dlssnrLaunchOptionManual', 'dlssnrRunManually', 'dlssnrReady',
+  'dlssnrLaunchOptionRemoved', 'dlssnrLaunchOptionManualRemove', 'overlayNotOnLinux',
+  'historySaveWarning', 'driverNeuralFault', 'oldShaderCompiler', 'overlaySkipped', 'feedVkLayerReady', 'neuralModelKept', 'rivalConsumerSetAside', 'overlayNotForRoute', 'multipassNext', 'forwarderRetired', 'optiDownloading', 'optiVerified', 'restoreRecovered']);
 window.lab.onJob((e) => jobLog(SPOKEN_JOB_CODES.has(e.code)
   ? t(e.code, ...Object.values(e.params || {}))
   : `${e.code} ${JSON.stringify(e.params)}`));

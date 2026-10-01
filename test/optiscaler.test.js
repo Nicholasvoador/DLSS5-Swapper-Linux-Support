@@ -76,15 +76,15 @@ test('GPU requirements and process guards reject known unsupported/running targe
   const game = path.join(root, 'Game.exe');
   const rows = [{ Name: 'Game.exe', ExecutablePath: game, ProcessId: -1 }, { Name: 'Game.exe', ExecutablePath: null, ProcessId: -2 }, { Name: 'Other.exe', ExecutablePath: path.resolve('elsewhere', 'Other.exe'), ProcessId: -3 }];
   assert.equal(guards.matchingProcesses(rows, root, game).length, 2);
-  await assert.rejects(guards.assertGameClosed(root, game, async () => JSON.stringify(rows)), { code: 'errGameRunning' });
+  await assert.rejects(guards.assertGameClosed(root, game, async () => JSON.stringify(rows), undefined, 'win32'), { code: 'errGameRunning' });
   // When the process list cannot be read - PowerShell restricted, a cold WMI
   // call past its timeout - the executable itself is asked instead. A file
   // that opens for writing is not a running game, and the install proceeds;
   // refusing there is what stopped people with a closed game from installing.
   const unavailable = async () => { throw new Error('Access denied'); };
-  await guards.assertGameClosed(root, game, unavailable, () => false);
-  await assert.rejects(guards.assertGameClosed(root, game, unavailable, () => true), { code: 'errGameRunning' });
-  await guards.assertGameClosed(root, game, async () => '[]');
+  await guards.assertGameClosed(root, game, unavailable, () => false, 'win32');
+  await assert.rejects(guards.assertGameClosed(root, game, unavailable, () => true, 'win32'), { code: 'errGameRunning' });
+  await guards.assertGameClosed(root, game, async () => '[]', undefined, 'win32');
 });
 
 test('unmanaged proxies and ASI loaders are refused; anti-cheat detection remains available for warnings', t => {

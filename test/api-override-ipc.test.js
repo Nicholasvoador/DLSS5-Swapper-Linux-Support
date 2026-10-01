@@ -27,6 +27,9 @@ test('real IPC persists per-EXE choices, validates selection, uses effective rou
         shell: { openExternal: async url => { if (failOpen) throw new Error('browser unavailable'); opened.push(url); } } },
       './src/core/scan.js': { scanGame: async () => scan },
       './src/core/compatibility': { assertSafeTarget() {}, hasAntiCheat: () => false, targetIssue: () => null },
+      // These cover the Windows IPC contract; the Linux install path has its
+      // own tests (linux-route.test.js).
+      './src/core/host-platform': { platform: 'win32' },
       './src/core/install-guards': { assertGameClosed: async () => {} },
       './src/core/runtime-components.js': { missingVCRuntime: () => [], ensureLumenite: async () => null, ensureDgVoodoo: async () => 'fixture' },
       './src/core/backend-manager': { readManifest: () => old, install: async config => {

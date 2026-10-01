@@ -24,6 +24,9 @@ const IS_LINUX = (require('./src/core/host-platform').platform || (typeof proces
 // The repo this fork came from. Named once: it is what "is my version current
 // with his" is asked against, and it must not drift from the fork's own origin.
 const UPSTREAM_REPO = 'rakanki911/DLSS5-Swapper';
+// Where this build's own releases come from. The fork first: a fix published
+// here is the one this app can actually be updated to.
+const FORK_REPO = 'Nicholasvoador/DLSS5-Swapper-Linux-pre';
 const art = require('./src/steamart');
 const { backupRoot, saveActiveManifest, writeTracked, makeReShadeConfigWritable } = require('./src/core/apply.js');
 const { scanSource } = require('./src/core/scan.js');
@@ -1637,25 +1640,44 @@ function newerRelease(current, latest) {
   }
   return false;
 }
+// Which releases the app's own version is measured against, in order. On Linux
+// this build comes from the fork, so the fork answers first - but until the fork
+// has published a release there is nothing there, and "update check
+// unavailable" is the wrong answer for someone whose build is fine. The
+// fallback is the truth: upstream's latest release is what this fork tracks.
+const RELEASE_FEEDS = IS_LINUX
+  ? [{ repo: FORK_REPO, byList: true }, { repo: UPSTREAM_REPO, byList: false }]
+  : [{ repo: UPSTREAM_REPO, byList: false }];
+
+async function latestTag({ repo, byList }, current) {
+  // A fork with no releases has no /releases/latest to read, which is exactly
+  // how "unavailable" happened; the list endpoint answers either way.
+  const url = byList
+    ? `https://api.github.com/repos/${repo}/releases?per_page=1`
+    : `https://api.github.com/repos/${repo}/releases/latest`;
+  const response = await fetch(url, {
+    headers: { 'User-Agent': `DLSS5-Swapper/${current}`, Accept: 'application/vnd.github+json' },
+    signal: AbortSignal.timeout(8000)
+  });
+  if (!response.ok) throw Error(String(response.status));
+  const body = await response.json();
+  const release = Array.isArray(body) ? (body[0] || {}) : body;
+  return String(release.tag_name || '').replace(/^v/, '');
+}
+
 ipcMain.handle('update-check', async () => {
   if (updateAnswer) return updateAnswer;
   const current = app.getVersion();
-  try {
-    const response = await fetch(IS_LINUX
-      ? 'https://api.github.com/repos/Nicholasvoador/DLSS5-Swapper-Linux-pre/releases?per_page=1'
-      : 'https://api.github.com/repos/rakanki911/DLSS5-Swapper/releases/latest', {
-      headers: { 'User-Agent': `DLSS5-Swapper/${current}`, Accept: 'application/vnd.github+json' },
-      signal: AbortSignal.timeout(8000)
-    });
-    if (!response.ok) throw Error(String(response.status));
-    const body = await response.json();
-    const release = Array.isArray(body) ? (body[0] || {}) : body;
-    const latest = String(release.tag_name || '').replace(/^v/, '');
-    updateAnswer = { current, latest, newer: newerRelease(current, latest) };
-  } catch {
-    // Offline, rate-limited or blocked: say nothing rather than worry anyone.
-    updateAnswer = { current, latest: null, newer: false };
+  for (const feed of RELEASE_FEEDS) {
+    try {
+      const latest = await latestTag(feed, current);
+      if (!latest) continue;
+      updateAnswer = { current, latest, newer: newerRelease(current, latest), repo: feed.repo };
+      return updateAnswer;
+    } catch { /* offline, rate-limited, or nothing published here: try the next feed */ }
   }
+  // Nothing answered at all. Said as such rather than as "you are up to date".
+  updateAnswer = { current, latest: null, newer: false };
   return updateAnswer;
 });
 // What this fork ships against what the projects publish. Deliberately
@@ -1680,7 +1702,24 @@ function componentsShipped() {
 }
 // Nothing is installed from here. The answer names versions and links; moving a
 // pin is a deliberate act because the digest is what makes the download safe.
-let componentAnswer = null;
+//
+// The answer is kept on disk as well as in memory. GitHub allows an anonymous
+// caller 60 requests an hour and this check is not the only thing asking, so a
+// fresh launch is not on its own a reason to ask six repositories again. Six
+// hours keeps it honest - a release made this morning is still found today.
+const COMPONENT_TTL_MS = 6 * 60 * 60 * 1000;
+function componentAnswerFile() {
+  return path.join(app.getPath('userData'), 'component-check.json');
+}
+function readComponentAnswer() {
+  try {
+    const saved = JSON.parse(fs.readFileSync(componentAnswerFile(), 'utf8'));
+    if (!saved || !saved.checkedAt || !Array.isArray(saved.components)) return null;
+    if (Date.now() - Date.parse(saved.checkedAt) > COMPONENT_TTL_MS) return null;
+    return saved;
+  } catch { return null; }
+}
+let componentAnswer = readComponentAnswer();
 ipcMain.handle('component-check', async () => {
   if (componentAnswer) return componentAnswer;
   const version = app.getVersion();
@@ -1692,6 +1731,7 @@ ipcMain.handle('component-check', async () => {
       current: componentsShipped(),
       upstream: { current: base, repo: UPSTREAM_REPO }
     });
+    try { fs.writeFileSync(componentAnswerFile(), JSON.stringify(componentAnswer), 'utf8'); } catch { /* a cache that cannot be written is still a working check */ }
   } catch {
     componentAnswer = { checkedAt: new Date().toISOString(), components: [], base: null, answered: false };
   }

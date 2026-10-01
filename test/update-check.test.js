@@ -90,3 +90,26 @@ test('a failed lookup is distinguishable from being up to date', () => {
   assert.match(renderer, /if \(!answer\.latest\) \{[\s\S]*updateCheckFailed/,
     'the renderer separates the two before it decides there is no news');
 });
+
+// The Linux build comes from the fork, and the fork had published nothing, so
+// /releases/latest 404d and the sidebar told a perfectly good build that its
+// update check was unavailable. Upstream's latest release is what this fork
+// tracks, so that is the honest answer until the fork publishes one.
+test('a fork with no releases yet falls through to upstream', async (t) => {
+  const seen = [];
+  const { handlers } = load(t, {
+    version: '2.2.9-linux.1',
+    fetchImpl: async (url) => {
+      seen.push(url);
+      if (/DLSS5-Swapper-Linux-pre/.test(url)) return { ok: true, json: async () => [] };
+      return { ok: true, json: async () => ({ tag_name: 'v2.2.9' }) };
+    }
+  });
+  const answer = await handlers.get('update-check')();
+  assert.equal(answer.latest, '2.2.9');
+  assert.equal(answer.repo, 'rakanki911/DLSS5-Swapper');
+  assert.equal(seen.length, 2, 'the fork was asked first, then upstream');
+  // Our own build is based on that release, so it is not behind its own base.
+  assert.equal(answer.newer, false);
+});
+

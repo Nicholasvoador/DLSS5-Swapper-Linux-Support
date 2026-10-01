@@ -12,9 +12,10 @@ function responder(feeds) {
     const key = Object.keys(feeds).find((part) => url.includes(part));
     if (!key) return { ok: false, status: 404, json: async () => ({}) };
     const value = feeds[key];
-    const body = Array.isArray(value)
-      ? value.map((row) => (typeof row === 'string' ? { tag_name: row } : row))
-      : value;
+    // Every repository is read through its releases LIST, so a stub written as
+    // one release is a list of one.
+    const rows = Array.isArray(value) ? value : [value];
+    const body = rows.map((row) => (typeof row === 'string' ? { tag_name: row } : row));
     return { ok: true, status: 200, json: async () => body };
   };
 }
@@ -107,6 +108,21 @@ test('a component this app does not pin is simply skipped', async () => {
     fetchImpl: responder({ 'RankFTW/rhi-repo': ['renodx-dlss5-8.5.0-rc10'] })
   });
   assert.deepEqual(result.components.map((row) => row.key), ['renodx']);
+});
+
+test('one request per repository, however many components come from it', async () => {
+  // GitHub gives an anonymous caller 60 requests an hour and this check is not
+  // the only thing using them. Both RenoDX consumers are published from one
+  // repo, so reading it per component spent two requests on one answer.
+  const seen = [];
+  await vc.check({
+    current: { renodx: '6.5.3', multipass: 'SF 26.0927.2125' },
+    fetchImpl: async (url) => {
+      seen.push(url);
+      return { ok: true, status: 200, json: async () => ([{ tag_name: 'renodx-dlss5-8.5.0-rc10' }]) };
+    }
+  });
+  assert.equal(seen.filter((url) => url.includes('RankFTW/rhi-repo')).length, 1);
 });
 
 test('the fork says when upstream has moved past its base', async () => {

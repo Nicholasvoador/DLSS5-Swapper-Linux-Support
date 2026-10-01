@@ -884,6 +884,30 @@ async function showUpdateNotice() {
   link.classList.remove('hidden');
 }
 
+// An add-on pin can trail the project that publishes it while the app itself is
+// current, so this is a second, separate line rather than more text on the
+// first: "your app is old" and "the add-on you install is old" are different
+// problems with different fixes. Silence when nothing is behind, and silence
+// when nothing answered - the app-version line already says when the check
+// itself failed.
+async function showComponentNotice() {
+  const link = $('statusComponents');
+  if (!link || !window.lab.checkComponents) return;
+  let answer = null;
+  try { answer = await window.lab.checkComponents(); } catch { return; }
+  if (!answer || !answer.answered) return;
+  const behind = (answer.components || []).filter((row) => row.newer);
+  const parts = [];
+  // "the thing this fork came from has moved" and "an add-on pin is behind" are
+  // different problems with different fixes, but they share one line: both mean
+  // this build is not what it could be.
+  if (answer.base && answer.base.newer) parts.push(t('upstreamBehind', answer.base.latest));
+  if (behind.length) parts.push(t('componentsBehind', behind.map((row) => `${row.label} → ${row.latest}`).join(', ')));
+  if (!parts.length) return;
+  link.textContent = parts.join(' · ');
+  link.classList.remove('hidden');
+}
+
 function jobLog(line) {
   jobLines.push(line);
   const box = document.querySelector('.job');
@@ -1596,6 +1620,7 @@ document.addEventListener('drop', (e) => e.preventDefault());
   // pick a game, choose a route and press Install before finding out (#220).
   if (boot.payloadMissing) log(boot.payloadMissing);
   showUpdateNotice();
+  showComponentNotice();
   state.logo = boot;
   paintBrand();
   state.art = (await window.lab.artStatus()).available;

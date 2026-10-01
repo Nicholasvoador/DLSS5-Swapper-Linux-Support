@@ -52,6 +52,10 @@ const S = {
     errBackendRecovery: 'An interrupted switch needs recovery. Close the game, then click Restore originals. Keep the backup folder intact.',
     updateAvailable: (version) => `Update available: v${version} ↗`,
     updateCheckFailed: () => 'Update check unavailable — this is not “you are up to date”.',
+    // Separate from the app's own version: an add-on can be behind while the
+    // app is current, and that is the case that used to pass unnoticed.
+    componentsBehind: (list) => `Add-on update available: ${list} ↗`,
+    upstreamBehind: (version) => `Upstream v${version} is newer than this fork's base ↗`,
     feedVkLayerReady: (rel) => `Vulkan interop layer installed. If DLSS 5 does not appear in game, launch it through ${rel}.`,
     neuralModelKept: (rel) => `Kept your existing ${rel}; the bundled model was not copied over it.`,
     restoreRecovered: (date) => `No live backup record was found, so the app is restoring from the one kept beside it (${date}). The files it describes are still in the game.`,

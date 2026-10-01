@@ -21,6 +21,9 @@ const dlssnr = require('./src/core/dlssnr');
 // main.js is also evaluated inside bare vm sandboxes by the tests, where
 // there may be no process object at all.
 const IS_LINUX = (require('./src/core/host-platform').platform || (typeof process !== 'undefined' ? process.platform : '')) === 'linux';
+// The repo this fork came from. Named once: it is what "is my version current
+// with his" is asked against, and it must not drift from the fork's own origin.
+const UPSTREAM_REPO = 'rakanki911/DLSS5-Swapper';
 const art = require('./src/steamart');
 const { backupRoot, saveActiveManifest, writeTracked, makeReShadeConfigWritable } = require('./src/core/apply.js');
 const { scanSource } = require('./src/core/scan.js');
@@ -47,6 +50,7 @@ const featureText = (key, ...args) => featureI18n.t(loadState().lang, key, ...ar
 const vulkanLayer = require('./src/core/vulkan-layer');
 const { HistoryStore, knownFolders, fromManifests } = require('./src/core/history');
 const gameMenu = require('./src/core/game-menu');
+const versionCheck = require('./src/core/version-check');
 const { CommunityClient, ADMIN_TOKEN_PATTERN } = require('./src/community-client');
 const { AdminVault } = require('./src/admin-vault');
 let historyStore;
@@ -1653,6 +1657,45 @@ ipcMain.handle('update-check', async () => {
     updateAnswer = { current, latest: null, newer: false };
   }
   return updateAnswer;
+});
+// What this fork ships against what the projects publish. Deliberately
+// separate from update-check, which is about this app's own release: a
+// component can be behind while the app is current, and after 2.2.9 pinned its
+// add-ons that is exactly the case that went unnoticed.
+//
+// The pins are read from the modules that own them, never restated here, so a
+// bump in one place is the whole change.
+function componentsShipped() {
+  const renodx = require('./src/core/renodx-release');
+  const feeder = require('./src/core/feeder-release');
+  const presr = optiscaler.RELEASES.find((entry) => /pre-SR/i.test(entry.label || '')) || {};
+  return {
+    renodx: renodx.CONSUMER.version,
+    multipass: renodx.MULTIPASS.version,
+    feeder: feeder.version,
+    dlssnr: dlssnr.RELEASE.version,
+    optiscaler: optiscaler.RELEASE.version,
+    optinr: presr.version
+  };
+}
+// Nothing is installed from here. The answer names versions and links; moving a
+// pin is a deliberate act because the digest is what makes the download safe.
+let componentAnswer = null;
+ipcMain.handle('component-check', async () => {
+  if (componentAnswer) return componentAnswer;
+  const version = app.getVersion();
+  // Our own version carries the fork suffix (2.2.9-linux.1). What upstream can
+  // be compared against is the release we forked at, not the fork's label.
+  const base = String(version).replace(/-linux.*$/i, '');
+  try {
+    componentAnswer = await versionCheck.check({
+      current: componentsShipped(),
+      upstream: { current: base, repo: UPSTREAM_REPO }
+    });
+  } catch {
+    componentAnswer = { checkedAt: new Date().toISOString(), components: [], base: null, answered: false };
+  }
+  return componentAnswer;
 });
 ipcMain.handle('details', async (_event, dir) => {
   const detailsPayload = payload();

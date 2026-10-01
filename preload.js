@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('lab', {
   overlaySource: () => ipcRenderer.invoke('overlay-source'),
   overlayBridge: () => ipcRenderer.invoke('overlay-bridge'),
   checkUpdate: () => ipcRenderer.invoke('update-check'),
+  checkComponents: () => ipcRenderer.invoke('component-check'),
   unhide: (dir) => ipcRenderer.invoke('unhide', dir),
   boot: () => ipcRenderer.invoke('boot'),
   setLang: (lang) => ipcRenderer.invoke('set-lang', lang),

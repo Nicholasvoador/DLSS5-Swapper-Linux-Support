@@ -12,6 +12,6 @@ First official Linux release of DLSS 5 Swapper, providing Linux-native and Proto
 - **Community Chat**: Full integration with the upstream community chat backend (`https://5.rakanki.com`) with privacy opt-in.
 
 ## Package Checksums (SHA-256)
-- **AppImage**: `c0e4bd4414b9ffd4aa716a624c4d8626a73c8fd0ba218b78f03a8e8e2e6a11ba`  `DLSS5-Swapper-Linux-2.2.9-linux.1.AppImage`
+- **AppImage**: `c0e4bd4414b9ffd4aa716a624c4d8626a73c8fd0ba218b78f03a8e8e2e6a11ba`  `DLSS5-Swapper-Linux-2.2.9-linux.1-x86_64.AppImage`
 - **DEB**: `bb0e00972e4cdbf950daf19d2bb37a491ee9c90b529aebad04d669e884fd9dec`  `DLSS5-Swapper-Linux-2.2.9-linux.1-amd64.deb`
-- **RPM**: `6b880ec18765954a7c29571ff5204c35e3ca4457e51ca2d5f0b40eb25c7ce1a5`  `DLSS5-Swapper-Linux-2.2.9-linux.1-x86_64.rpm`
+- **RPM**: `1526142499c537a3270415b2a2bd99b020dc844c20168e91f29c1af8de2215c1`  `DLSS5-Swapper-Linux-2.2.9-linux.1-x86_64.rpm`

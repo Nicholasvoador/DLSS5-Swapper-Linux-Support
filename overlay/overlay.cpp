@@ -283,6 +283,32 @@ surface &state_for(reshade::api::effect_runtime *runtime) {
     auto &ptr = surfaces[runtime]; if (!ptr) ptr = std::make_unique<surface>();
     return *ptr;
 }
+#ifdef LAB_OVERLAY_SMOKE
+// Lab only, never in the shipped add-on: DLSS_LAB_SMOKE_SET="101=0.43,103=0"
+// sends those commands to the RenoDX bridge once it is active, exactly as the
+// app's panel would, and logs the status the panel would receive before and
+// after. It is how a new RenoDX build is proven end to end with no app running.
+void smoke_script(surface &s) {
+    static unsigned frame = 0, sent_at = 0;
+    ++frame;
+    if (!s.nr.active) return;
+    char script[512] = {};
+    if (!GetEnvironmentVariableA("DLSS_LAB_SMOKE_SET", script, sizeof(script))) return;
+    if (!sent_at && frame >= 60) {
+        reshade::log::message(reshade::log::level::info, ("NR_LAB_STATUS before " + s.nr.json()).c_str());
+        for (char *item = strtok(script, ","); item; item = strtok(nullptr, ",")) {
+            unsigned id = 0; float value = 0;
+            if (sscanf(item, "%u=%f", &id, &value) != 2 || id < 101 || id >= 101 + s.nr.fields.size()) continue;
+            const lab_live::command c {s.live.epoch, id, s.nr.fields[id - 101].kind, value};
+            char line[160]; snprintf(line, sizeof(line), "NR_LAB_COMMAND id=%u value=%.4f accepted=%d", id, value, s.nr.accept(s.live.epoch, c) ? 1 : 0);
+            reshade::log::message(reshade::log::level::info, line);
+        }
+        sent_at = frame;
+    }
+    if (sent_at && frame == sent_at + 30)
+        reshade::log::message(reshade::log::level::info, ("NR_LAB_STATUS after " + s.nr.json()).c_str());
+}
+#endif
 void draw(reshade::api::effect_runtime *runtime) {
     auto &s = state_for(runtime); auto &bridge = s.bridge;
     bridge.poll();
@@ -305,6 +331,7 @@ void draw(reshade::api::effect_runtime *runtime) {
     // The isolated host has no app to connect to, and the whole point of a smoke
     // run is to see what the bridge makes of the RenoDX build beside it.
     s.nr.tick(runtime);
+    smoke_script(s);
 #endif
     if (bridge.connected() && bridge.nr_peer) s.nr.tick(runtime);
     if (bridge.connected() && bridge.feed_peer) s.feed.tick(runtime->get_device()->get_api()==reshade::api::device_api::d3d11);

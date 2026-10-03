@@ -35,6 +35,19 @@ const REQUIRED = [
 const MARKER = '.dlss5-linux-payload.json';
 const SEVENZ_SIGNATURE = Buffer.from([0x37, 0x7a, 0xbc, 0xaf, 0x27, 0x1c]);
 
+// The RenoDX consumers this fork pins ahead of the upstream package. Upstream
+// 2.2.9 carries RenoDX 6.5.3; the fork moves on without waiting for a new
+// upstream release by laying its own pinned builds over the payload. Each is
+// fetched from the project's own release (src/core/renodx-release.js), and the
+// zip and the file inside it are both checked against their digests. A payload
+// whose consumers are not these exact files is not ready.
+const renodxRelease = require('./renodx-release');
+const componentPins = (release = renodxRelease) => [
+  { ...release.CONSUMER, targets: ['renodx-dlss5.addon64', 'feeder/host64/renodx-dlss5.addon64'] },
+  { ...release.MULTIPASS, targets: ['feeder/host64/renodx-dlss.addon64'] }
+];
+const COMPONENTS = Object.freeze(componentPins());
+
 const payloadDir = (userData) => path.join(userData, 'payload');
 
 function sha256File(file) {
@@ -43,15 +56,27 @@ function sha256File(file) {
     fs.createReadStream(file).on('error', reject).on('data', (chunk) => hash.update(chunk)).on('end', () => resolve(hash.digest('hex')));
   });
 }
+// The consumers are a few MB; reading them synchronously keeps ready() cheap
+// enough to ask on every launch and every install.
+function digestOf(file) {
+  try { return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex'); } catch { return null; }
+}
+const componentsCurrent = (dir, components = COMPONENTS) =>
+  components.every((c) => c.targets.every((rel) => digestOf(path.join(dir, rel)) === c.sha256));
 
-// Present, complete and from the pinned release.
-function ready(userData, upstream = UPSTREAM) {
+// The upstream package was unpacked here, completely, from the pinned release.
+function upstreamReady(userData, upstream = UPSTREAM) {
   const dir = payloadDir(userData);
   try {
     const marker = JSON.parse(fs.readFileSync(path.join(dir, MARKER), 'utf8'));
     if (marker.sha256 !== upstream.sha256) return false;
   } catch { return false; }
   return REQUIRED.every((rel) => fs.existsSync(path.join(dir, rel)));
+}
+
+// Present, complete, from the pinned release, and carrying the pinned add-ons.
+function ready(userData, upstream = UPSTREAM, components = COMPONENTS) {
+  return upstreamReady(userData, upstream) && componentsCurrent(payloadDir(userData), components);
 }
 
 // The 7z archive inside an NSIS stub: signature, then the start header says
@@ -118,11 +143,11 @@ function run(file, args, options = {}) {
     (error, stdout, stderr) => (error ? reject(Object.assign(error, { stderr })) : resolve(stdout))));
 }
 
-async function extract(archive, into, userData, runner = run) {
+async function extract(archive, into, userData, runner = run, args = ['x', '-y', `-o${into}`, archive, 'resources/payload/*']) {
   let lastError = null;
   for (const tool of sevenZipCandidates(userData)) {
     try {
-      await runner(tool, ['x', '-y', `-o${into}`, archive, 'resources/payload/*']);
+      await runner(tool, args);
       return tool;
     } catch (error) { lastError = error; }
   }
@@ -159,15 +184,67 @@ async function download(url, dest, expected, onProgress = () => {}, fetchImpl = 
 
 let inflight = null;
 // Idempotent and single-flight: the boot fetch and an Install press share it.
+// When only the pinned add-ons moved, only they are fetched - a few MB - and
+// the upstream package already on disk is kept.
 function ensurePayload(userData, options = {}) {
-  if (ready(userData, options.upstream || UPSTREAM)) return Promise.resolve(payloadDir(userData));
+  const upstream = options.upstream || UPSTREAM;
+  const components = options.components || COMPONENTS;
+  if (ready(userData, upstream, components)) return Promise.resolve(payloadDir(userData));
   if (!inflight) {
-    inflight = fetchPayload(userData, options).finally(() => { inflight = null; });
+    const job = upstreamReady(userData, upstream)
+      ? applyComponents(payloadDir(userData), userData, options).then((dir) => { recordComponents(dir, components); return dir; })
+      : fetchPayload(userData, options);
+    inflight = job.finally(() => { inflight = null; });
   }
   return inflight;
 }
 
-async function fetchPayload(userData, { upstream = UPSTREAM, log = () => {}, fetchImpl, runner, localPackage } = {}) {
+// Lay each pinned add-on over the payload in `dir`: download its release zip,
+// check the zip's digest, take the one file out, check that file's digest, and
+// only then replace each target - each one whole, or not at all.
+async function applyComponents(dir, userData, { components = COMPONENTS, fetchImpl, runner, log = () => {} } = {}) {
+  const stale = components.filter((c) => !c.targets.every((rel) => digestOf(path.join(dir, rel)) === c.sha256));
+  if (!stale.length) return dir;
+  const work = path.join(userData, 'component-download');
+  fs.rmSync(work, { recursive: true, force: true });
+  fs.mkdirSync(work, { recursive: true });
+  try {
+    for (const c of stale) {
+      const [name, url, archiveSha256] = c.archive;
+      log('componentDownloading', { name: c.file, version: c.version });
+      const zip = path.join(work, name);
+      await download(url, zip, { name, sha256: archiveSha256 }, () => {}, fetchImpl);
+      const out = path.join(work, `${name}.unpacked`);
+      await extract(zip, out, userData, runner, ['e', '-y', `-o${out}`, zip, c.file, '-r']);
+      const file = path.join(out, c.file);
+      const digest = digestOf(file);
+      if (digest !== c.sha256) throw new Error(`${c.file} in ${name} is not the pinned build (got ${digest || 'nothing'})`);
+      for (const rel of c.targets) {
+        const dest = path.join(dir, rel);
+        fs.mkdirSync(path.dirname(dest), { recursive: true });
+        fs.copyFileSync(file, `${dest}.new`);
+        fs.renameSync(`${dest}.new`, dest);
+      }
+      log('componentReady', { name: c.file, version: c.version });
+    }
+  } finally {
+    fs.rmSync(work, { recursive: true, force: true });
+  }
+  return dir;
+}
+
+// The marker says which add-ons were laid over the upstream package, so a
+// support report shows it without anyone hashing files.
+function recordComponents(dir, components = COMPONENTS) {
+  const file = path.join(dir, MARKER);
+  try {
+    const marker = JSON.parse(fs.readFileSync(file, 'utf8'));
+    marker.components = Object.fromEntries(components.map((c) => [c.file, { version: c.version, sha256: c.sha256 }]));
+    fs.writeFileSync(file, JSON.stringify(marker, null, 2));
+  } catch { /* no marker: nothing to annotate */ }
+}
+
+async function fetchPayload(userData, { upstream = UPSTREAM, components = COMPONENTS, log = () => {}, fetchImpl, runner, localPackage } = {}) {
   const work = path.join(userData, 'payload-download');
   fs.rmSync(work, { recursive: true, force: true });
   fs.mkdirSync(work, { recursive: true });
@@ -193,6 +270,10 @@ async function fetchPayload(userData, { upstream = UPSTREAM, log = () => {}, fet
     fs.writeFileSync(path.join(fresh, MARKER), JSON.stringify({
       source: upstream.url, version: upstream.version, sha256: upstream.sha256, unpacked: new Date().toISOString()
     }, null, 2));
+    // The fork's pinned add-ons go in before the swap, so the payload that
+    // appears is already the one this build was tested with.
+    await applyComponents(fresh, userData, { components, fetchImpl, runner, log });
+    recordComponents(fresh, components);
     // Swap in whole: a payload is either the old one or the new one.
     const dest = payloadDir(userData);
     const old = `${dest}.old-${Date.now()}`;
@@ -206,4 +287,7 @@ async function fetchPayload(userData, { upstream = UPSTREAM, log = () => {}, fet
   }
 }
 
-module.exports = { UPSTREAM, REQUIRED, MARKER, payloadDir, ready, ensurePayload, fetchPayload, locateArchive, sevenZipCandidates, sha256File };
+module.exports = {
+  UPSTREAM, REQUIRED, MARKER, COMPONENTS, componentPins, payloadDir, ready, upstreamReady, componentsCurrent,
+  ensurePayload, fetchPayload, applyComponents, locateArchive, sevenZipCandidates, sha256File
+};

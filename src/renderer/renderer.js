@@ -1584,7 +1584,7 @@ document.addEventListener('keydown', (e) => {
 const RESHADE_PROXY_APIS = ['dxgi', 'd3d8', 'd3d9', 'ddraw'];
 const SPOKEN_JOB_CODES = new Set([
   // Linux fork
-  'payloadDownloading', 'payloadProgress', 'payloadVerified', 'payloadReady', 'payloadFailed',
+  'payloadDownloading', 'payloadProgress', 'payloadVerified', 'payloadReady', 'payloadFailed', 'componentDownloading', 'componentReady',
   'dlssnrDownloading', 'dlssnrInstalled', 'dlssnrPresent', 'dlssnrModelImported', 'dlssnrWrapperReady',
   'dlssnrLaunchOptionSet', 'dlssnrLaunchOptionManual', 'dlssnrRunManually', 'dlssnrReady',
   'dlssnrLaunchOptionRemoved', 'dlssnrLaunchOptionManualRemove', 'overlayNotOnLinux',

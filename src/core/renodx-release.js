@@ -10,18 +10,23 @@
 // The generic build is what every route installs. The DLSS Tool build REPLACES
 // it on the multipass route rather than joining it: two neural consumers in one
 // game leave the tickbox saying yes while the picture says no.
+//
+// 8.5.0-rc10 redraws its page (one child window, "##value" widgets under their
+// INI keys); the F8 bridge drives it by key - see overlay/renodx-ui-bridge.hpp.
+// The rc channel is the one the project publishes on, and DLSS5-Feeder 1.17.0's
+// own installer takes the newest build from the same feed.
 const CONSUMER = Object.freeze({
-  version: '6.5.3',
+  version: '8.5.0-rc10',
   file: 'renodx-dlss5.addon64',
-  archive: Object.freeze(['renodx-dlss5_6.5.3.zip', 'https://github.com/RankFTW/rhi-repo/releases/download/renodx-dlss5-6.5.3/renodx-dlss5_6.5.3.zip', '553b1619b9e5ddfbcb4ebc7f2f3bffff9256a48a25b988f4817f5c63f4caa1de']),
-  sha256: '342341f669f1d64e0c70c8593a07a2fab5075e073dfae97c331c9a6776260a0a'
+  archive: Object.freeze(['renodx-dlss5_8.5.0-rc10.zip', 'https://github.com/RankFTW/rhi-repo/releases/download/renodx-dlss5-8.5.0-rc10/renodx-dlss5_8.5.0-rc10.zip', 'a745040cb2e93e3a1500a6c5a322972acc4c5c667108fcea31c748285d6364a9']),
+  sha256: 'dcd93881e976ad033d83c2bb01f4bc3e4ddc59c15fe0dd4ca165bc5fc7d1ac68'
 });
 // ShortFuse's DLSS Tool build, carrying DirectNeuralRenderingPassCount (#251).
 const MULTIPASS = Object.freeze({
-  version: 'SF 26.0927.2125',
+  version: 'SF 26.0928.0205',
   file: 'renodx-dlss.addon64',
-  archive: Object.freeze(['renodx-dlss_SF_26.0927.2125.zip', 'https://github.com/RankFTW/rhi-repo/releases/download/renodx-dlss-SF-26.0927.2125/renodx-dlss_SF_26.0927.2125.zip', '2ccf4605ea8fd2b3be72d1aee13fad1ae4ef66845845f5db97503eb6f70b00bf']),
-  sha256: '25600017cf95ad797eabb4e93de694b0dc1fce472999381c114bf44a7692ef60'
+  archive: Object.freeze(['renodx-dlss_SF_26.0928.0205.zip', 'https://github.com/RankFTW/rhi-repo/releases/download/renodx-dlss-SF-26.0928.0205/renodx-dlss_SF_26.0928.0205.zip', '6091f47a2248854eb1779b2c3b97939f1fbe53adbae7d1642ada236fcc0b6f52']),
+  sha256: '083c002027996af25db4d1d67ca98bb6772c5cc6f28b6ea3dbc506867a97f187'
 });
 // Every neural evaluate faults inside NVIDIA's own NGX runtime on driver
 // 616.64 and newer with the 4.x consumers - measured upstream across three

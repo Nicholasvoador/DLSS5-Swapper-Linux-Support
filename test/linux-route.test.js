@@ -321,13 +321,14 @@ test('the payload is located inside an NSIS stub, unpacked, and swapped in only 
   assert.equal(located.length, fs.statSync(archive).size, 'the archive is cut out byte for byte');
 
   const said = [];
-  const dir = await linuxPayload.ensurePayload(userData, { upstream, localPackage: pkg, log: (code) => said.push(code) });
+  // The pinned add-ons are covered by renodx-850.test.js; this is the package.
+  const dir = await linuxPayload.ensurePayload(userData, { upstream, components: [], localPackage: pkg, log: (code) => said.push(code) });
   assert.equal(dir, linuxPayload.payloadDir(userData));
-  assert.ok(linuxPayload.ready(userData, upstream));
+  assert.ok(linuxPayload.ready(userData, upstream, []));
   assert.deepEqual(said, ['payloadVerified', 'payloadReady']);
   assert.ok(!fs.existsSync(path.join(userData, 'payload-download')), 'scratch space is cleaned up');
   // A different pinned release is not "ready", even with the files there.
-  assert.equal(linuxPayload.ready(userData, { ...upstream, sha256: '0'.repeat(64) }), false);
+  assert.equal(linuxPayload.ready(userData, { ...upstream, sha256: '0'.repeat(64) }, []), false);
 });
 
 test('a download that does not match the pinned SHA-256 is thrown away', async (t) => {

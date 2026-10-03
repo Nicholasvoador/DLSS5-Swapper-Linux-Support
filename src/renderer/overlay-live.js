@@ -15,7 +15,7 @@ window.mountOverlayLive = (root, { designOnly = false } = {}) => {
     ['NR Preset',4,0,0,3,['Default','Preset #1','Preset #2','Preset #3']],
     ['NR Style',4,0,0,2,['Default','Natural','Cinematic']],
     ['Depth Convention',4,0,0,2,['Use game NGX flag','Force normal depth','Force inverted depth']]
-  ].map(([name,kind,value,min,max,options],i)=>({id:101+i,name,kind,value,min,max,options,step:kind===0?.01:1,available:true,effect:'RenoDX 6.5.3'})) };
+  ].map(([name,kind,value,min,max,options],i)=>({id:101+i,name,kind,value,min,max,options,step:kind===0?.01:1,available:true,effect:'RenoDX 8.5.0-rc10'})) };
   let status = sample, epoch = 0, preview = true, connectedOnce = false, autoEpoch = 0;
   // Only reasons worth reading. While the bridge works the badge in the
   // header already says CONNECTED, so the line below it stays out of sight.

@@ -1,6 +1,6 @@
 {
   "name": "dlss5-swapper",
-  "version": "2.2.9-linux.1",
+  "version": "2.2.9-linux.2",
   "description": "DLSS 5 (Neural Rendering) for your games on Linux - Proton games through ReShade/RenoDX/Feeder, Vulkan games through DLSS5VKLayer",
   "main": "main.js",
   "scripts": {

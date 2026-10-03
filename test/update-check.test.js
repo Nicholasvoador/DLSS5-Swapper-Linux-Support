@@ -101,7 +101,7 @@ test('a fork with no releases yet falls through to upstream', async (t) => {
     version: '2.2.9-linux.1',
     fetchImpl: async (url) => {
       seen.push(url);
-      if (/DLSS5-Swapper-Linux-pre/.test(url)) return { ok: true, json: async () => [] };
+      if (/DLSS5-Swapper-Linux-Support/.test(url)) return { ok: true, json: async () => [] };
       return { ok: true, json: async () => ({ tag_name: 'v2.2.9' }) };
     }
   });

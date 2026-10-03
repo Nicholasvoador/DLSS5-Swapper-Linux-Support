@@ -26,7 +26,7 @@ const IS_LINUX = (require('./src/core/host-platform').platform || (typeof proces
 const UPSTREAM_REPO = 'rakanki911/DLSS5-Swapper';
 // Where this build's own releases come from. The fork first: a fix published
 // here is the one this app can actually be updated to.
-const FORK_REPO = 'Nicholasvoador/DLSS5-Swapper-Linux-pre';
+const FORK_REPO = 'Nicholasvoador/DLSS5-Swapper-Linux-Support';
 const art = require('./src/steamart');
 const { backupRoot, saveActiveManifest, writeTracked, makeReShadeConfigWritable } = require('./src/core/apply.js');
 const { scanSource } = require('./src/core/scan.js');

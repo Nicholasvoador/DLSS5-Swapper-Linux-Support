@@ -14,6 +14,13 @@ contextBridge.exposeInMainWorld('lab', {
   overlayBridge: () => ipcRenderer.invoke('overlay-bridge'),
   checkUpdate: () => ipcRenderer.invoke('update-check'),
   checkComponents: () => ipcRenderer.invoke('component-check'),
+  // Linux fork: the Updates panel.
+  updatesStatus: () => ipcRenderer.invoke('updates-status'),
+  updateApp: () => ipcRenderer.invoke('updates-app'),
+  updateAddon: (key) => ipcRenderer.invoke('updates-addon', key),
+  revertAddon: (key) => ipcRenderer.invoke('updates-addon-revert', key),
+  openReleasePage: (url) => ipcRenderer.invoke('updates-open', url),
+  onUpdateProgress: (handler) => ipcRenderer.on('update-progress', (_e, event) => handler(event)),
   unhide: (dir) => ipcRenderer.invoke('unhide', dir),
   boot: () => ipcRenderer.invoke('boot'),
   setLang: (lang) => ipcRenderer.invoke('set-lang', lang),

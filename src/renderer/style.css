@@ -874,6 +874,26 @@ select option { background: var(--panel); color: var(--text); }
 .about-links a { text-decoration: none; }
 .about-links a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 
+/* Linux fork: the Updates panel under About. */
+.updates { margin-top: 16px; }
+.updates .upd-title { margin: 0 0 6px; padding: 0; border: 0; }
+.updates .upd-title h3 { margin: 0; }
+.upd-head { margin: 18px 0 2px; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.upd-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.upd-main { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.upd-main b { font-size: 14px; color: var(--text); }
+.upd-main span { font-size: 12.5px; color: var(--muted); line-height: 1.6; }
+.upd-act { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; flex-shrink: 0; }
+.upd-pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11.5px; font-weight: 600; color: var(--muted); background: var(--glass); }
+.upd-pill.new { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.upd-note { margin: 10px 2px 0; }
+.upd-ask { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 8px 0 4px; padding: 12px 14px; border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); background: color-mix(in srgb, var(--accent) 8%, transparent); font-size: 13px; }
+.upd-ask span { flex: 1 1 280px; color: var(--text); }
+.upd-log { margin: 14px 0 0; padding: 12px 14px; border-radius: 12px; background: var(--glass); color: var(--text);
+  font: 12px/1.7 ui-monospace, 'JetBrains Mono', monospace; white-space: pre-wrap; word-break: break-word; max-height: 220px; overflow: auto; }
+.status-update.muted.linkable { pointer-events: auto; cursor: pointer; }
+
 /* ---------------- game sheet ---------------- */
 .overlay {
   position: fixed;

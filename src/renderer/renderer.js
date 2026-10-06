@@ -83,11 +83,15 @@ function show(view) {
   if (view === 'overlays') window.overlayLab.render();
   if (view === 'community') window.communityUi.render();
   if (view === 'chat') window.chatUi?.render?.();
+  if (view === 'about') renderUpdates();
 }
 
 for (const link of document.querySelectorAll('[data-project]')) {
   link.addEventListener('click', async event => {
     event.preventDefault();
+    // Linux fork: the sidebar's update lines open the Updates panel, where
+    // the update can actually be done, instead of a web page.
+    if (state.updatesSupported && (link.id === 'statusUpdate' || link.id === 'statusComponents')) { show('about'); return; }
     let ok = false;
     try { ok = await window.lab.openProject(link.dataset.project); } catch {}
     $('projectLinkError').classList.toggle('hidden', Boolean(ok));
@@ -878,7 +882,7 @@ async function showUpdateNotice() {
     link.classList.remove('hidden');
     return;
   }
-  if (!answer.newer) return;
+  if (!answer.newer) { link.classList.add('hidden'); return; }
   link.textContent = t('updateAvailable', answer.latest);
   link.classList.remove('muted');
   link.classList.remove('hidden');
@@ -903,10 +907,143 @@ async function showComponentNotice() {
   // this build is not what it could be.
   if (answer.base && answer.base.newer) parts.push(t('upstreamBehind', answer.base.latest));
   if (behind.length) parts.push(t('componentsBehind', behind.map((row) => `${row.label} → ${row.latest}`).join(', ')));
-  if (!parts.length) return;
+  // Asked again after an add-on was updated in the app: nothing behind now
+  // means the line goes, rather than going on announcing the old news.
+  if (!parts.length) { link.classList.add('hidden'); return; }
   link.textContent = parts.join(' · ');
   link.classList.remove('hidden');
 }
+
+// ---------------- Linux fork: the Updates panel ----------------
+//
+// The About page lists this copy, the original it follows, and the RenoDX
+// add-ons, each with what is newer and a button to get it. Every action asks
+// first, in the panel itself, and its progress is written underneath.
+const updatesUi = { status: null, busy: false, ask: null, lines: [] };
+const updatesLog = (line) => { updatesUi.lines.push(line); paintUpdates(); };
+// Download progress rewrites its own line instead of adding twenty.
+window.lab.onUpdateProgress?.((e) => {
+  const line = t(e.code, ...Object.values(e.params || {}));
+  if (e.code === 'appProgress' && updatesUi.progressAt === updatesUi.lines.length - 1) { updatesUi.lines[updatesUi.progressAt] = line; paintUpdates(); return; }
+  updatesLog(line);
+  updatesUi.progressAt = e.code === 'appProgress' ? updatesUi.lines.length - 1 : -1;
+});
+
+async function renderUpdates(fresh = false) {
+  const panel = $('updatesPanel');
+  if (!panel || !state.updatesSupported) return;
+  panel.classList.remove('hidden');
+  if (updatesUi.busy || (updatesUi.status && !fresh)) { paintUpdates(); return; }
+  updatesUi.status = 'loading';
+  paintUpdates();
+  try { updatesUi.status = await window.lab.updatesStatus(); }
+  catch (error) { updatesUi.status = { error: String(error && error.message || error) }; }
+  paintUpdates();
+  showUpdateNotice();
+  showComponentNotice();
+}
+
+function updatesRow(title, sub, right) {
+  return `<div class="upd-row"><div class="upd-main"><b>${title}</b>${sub.map((s) => `<span>${s}</span>`).join('')}</div><div class="upd-act">${right}</div></div>`;
+}
+const releaseLink = (url) => url ? `<button class="ghost sm" data-upd-open="${esc(url)}">${t('updatesReleasePage')}</button>` : '';
+const versionPill = (text, newer) => `<span class="upd-pill${newer ? ' new' : ''}">${esc(text)}</span>`;
+
+function paintUpdates() {
+  const panel = $('updatesPanel');
+  if (!panel) return;
+  const s = updatesUi.status;
+  const busy = updatesUi.busy ? ' disabled' : '';
+  let body = '';
+  if (s === 'loading' || !s) {
+    body = `<p class="hint">${t('updatesChecking')}</p>`;
+  } else if (s.error) {
+    body = `<p class="hint">${esc(t('updatesUnavailable', s.error))}</p>`;
+  } else {
+    const a = s.app;
+    const appRight = a.newer && a.canInstall
+      ? `<button class="glass-btn sm" data-upd="app"${busy}>${esc(t('updatesInstallApp', a.latest))}</button>${releaseLink(a.notes)}`
+      : a.latest ? `${a.newer ? '' : versionPill(t('updatesUpToDate'))}${releaseLink(a.notes)}` : releaseLink(a.notes);
+    body += updatesRow(esc(t('updatesApp')), [
+      esc(t('updatesCurrent', a.current)) + (a.latest ? ` · ${versionPill(t('updatesLatest', a.latest), a.newer)}` : ''),
+      a.error ? esc(t('updatesUnavailable', a.error)) : esc(t('updatesKind', a.kind))
+    ], appRight);
+    if (s.base && s.base.latest) {
+      body += updatesRow(esc(t('updatesUpstream')), [
+        esc(s.base.newer ? t('updatesUpstreamNewer', s.base.latest.replace(/^v/, '')) : t('updatesUpstreamSame', s.base.latest.replace(/^v/, '')))
+      ], releaseLink(s.base.url));
+    }
+    body += `<h4 class="upd-head">${t('updatesAddons')}</h4>`;
+    for (const row of s.addons) {
+      const right = [
+        row.newer && row.verifiable ? `<button class="glass-btn sm" data-upd="addon" data-key="${esc(row.key)}" data-label="${esc(row.label)}" data-version="${esc(row.latest)}"${busy}>${esc(t('updatesAddonUpdate', row.latest))}</button>` : '',
+        !row.newer && row.latest ? versionPill(t('updatesUpToDate')) : '',
+        row.origin === 'updated' ? `<button class="ghost sm" data-upd="revert" data-key="${esc(row.key)}" data-label="${esc(row.label)}" data-version="${esc(row.builtIn)}"${busy}>${esc(t('updatesRevert', row.builtIn))}</button>` : '',
+        releaseLink(row.notes)
+      ].join('');
+      body += updatesRow(esc(row.label), [
+        esc(t('updatesCurrent', row.current)) + (row.latest ? ` · ${versionPill(t('updatesLatest', row.latest), row.newer)}` : ''),
+        row.error ? esc(t('updatesUnavailable', row.error)) : esc(row.origin === 'updated' ? t('updatesUpdatedFrom', row.builtIn) : t('updatesShipped'))
+      ], right);
+    }
+    body += `<p class="hint upd-note">${t('updatesAddonNote')}</p>`;
+    if (s.others && s.others.length) {
+      body += `<h4 class="upd-head">${t('updatesOthers')}</h4>`;
+      for (const row of s.others) {
+        body += updatesRow(esc(row.label), [
+          esc(t('updatesCurrent', row.current)) + (row.latest ? ` · ${versionPill(t('updatesLatest', String(row.latest).replace(/^v/, '')), row.newer)}` : '')
+        ], `${!row.newer && row.latest ? versionPill(t('updatesUpToDate')) : ''}${releaseLink(row.url)}`);
+      }
+      body += `<p class="hint upd-note">${t('updatesOthersNote')}</p>`;
+    }
+  }
+  const ask = updatesUi.ask
+    ? `<div class="upd-ask" role="alertdialog"><span>${esc(updatesUi.ask.text)}</span><button class="glass-btn sm" data-upd-yes>${t('updatesYes')}</button><button class="ghost sm" data-upd-no>${t('cancel')}</button></div>`
+    : '';
+  const log = updatesUi.lines.length ? `<pre class="upd-log">${esc(updatesUi.lines.join('\n'))}</pre>` : '';
+  panel.innerHTML = `<div class="section-head upd-title"><h3>${t('updatesTitle')}</h3><button class="ghost sm" data-upd-refresh${busy || (s === 'loading' ? ' disabled' : '')}>${t('updatesCheckAgain')}</button></div>${ask}${body}${log}`;
+}
+
+async function updatesRun(work) {
+  updatesUi.busy = true;
+  updatesUi.ask = null;
+  // Each action gets its own log: the last one's lines are history by now.
+  updatesUi.lines = [];
+  updatesUi.progressAt = -1;
+  paintUpdates();
+  let result = null;
+  try { result = await work(); }
+  catch (error) { result = { ok: false, message: String(error && error.message || error) }; }
+  if (result && !result.ok && result.message && !updatesUi.lines.some((line) => line.includes(result.message))) {
+    updatesLog(t('updateFailed', result.message));
+  }
+  updatesUi.busy = false;
+  // Restarting into the new version: leave the panel as it is until it goes.
+  if (result && result.restarting) { paintUpdates(); return; }
+  showComponentNotice();
+  await renderUpdates(true);
+}
+
+document.addEventListener('click', (event) => {
+  const target = event.target.closest('#updatesPanel button');
+  if (!target || target.disabled) return;
+  if (target.hasAttribute('data-upd-refresh')) { updatesUi.lines = []; renderUpdates(true); return; }
+  if (target.hasAttribute('data-upd-open')) { window.lab.openReleasePage(target.dataset.updOpen); return; }
+  if (target.hasAttribute('data-upd-no')) { updatesUi.ask = null; paintUpdates(); return; }
+  if (target.hasAttribute('data-upd-yes')) { const run = updatesUi.ask && updatesUi.ask.run; if (run) updatesRun(run); return; }
+  const kind = target.dataset.upd;
+  const s = updatesUi.status;
+  if (kind === 'app' && s && s.app) {
+    updatesUi.ask = { text: t('updatesConfirmApp', s.app.latest, s.app.kind), run: () => window.lab.updateApp() };
+  } else if (kind === 'addon') {
+    const { key, label, version } = target.dataset;
+    updatesUi.ask = { text: t('updatesConfirmAddon', label, version), run: () => window.lab.updateAddon(key) };
+  } else if (kind === 'revert') {
+    const { key, label, version } = target.dataset;
+    updatesUi.ask = { text: t('updatesConfirmRevert', label, version), run: () => window.lab.revertAddon(key) };
+  }
+  paintUpdates();
+});
 
 function jobLog(line) {
   jobLines.push(line);
@@ -1616,6 +1753,8 @@ document.addEventListener('drop', (e) => e.preventDefault());
   syncSkinChrome();
   applyLang(boot.lang || 'en');
   $('statusVersion').textContent = `v${boot.version}`;
+  state.updatesSupported = Boolean(boot.updates);
+  if (state.updatesSupported) $('statusComponents')?.classList.add('linkable');
   // Nothing this app installs is on disk. Saying so now beats letting somebody
   // pick a game, choose a route and press Install before finding out (#220).
   if (boot.payloadMissing) log(boot.payloadMissing);

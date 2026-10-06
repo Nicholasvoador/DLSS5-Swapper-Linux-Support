@@ -23,10 +23,10 @@ const CONSUMER = Object.freeze({
 });
 // ShortFuse's DLSS Tool build, carrying DirectNeuralRenderingPassCount (#251).
 const MULTIPASS = Object.freeze({
-  version: 'SF 26.0928.0205',
+  version: 'SF 26.1003.2350',
   file: 'renodx-dlss.addon64',
-  archive: Object.freeze(['renodx-dlss_SF_26.0928.0205.zip', 'https://github.com/RankFTW/rhi-repo/releases/download/renodx-dlss-SF-26.0928.0205/renodx-dlss_SF_26.0928.0205.zip', '6091f47a2248854eb1779b2c3b97939f1fbe53adbae7d1642ada236fcc0b6f52']),
-  sha256: '083c002027996af25db4d1d67ca98bb6772c5cc6f28b6ea3dbc506867a97f187'
+  archive: Object.freeze(['renodx-dlss_SF_26.1003.2350.zip', 'https://github.com/RankFTW/rhi-repo/releases/download/renodx-dlss-SF-26.1003.2350/renodx-dlss_SF_26.1003.2350.zip', '34ef92d6742bf6d05df42ff81c04b70f5138b0a0a970a93f1a04295ac83f7f0f']),
+  sha256: '1310119c87e4ab5ad0af41511411bd4608ff3c3030a29196ae0e4bba32c84585'
 });
 // Every neural evaluate faults inside NVIDIA's own NGX runtime on driver
 // 616.64 and newer with the 4.x consumers - measured upstream across three

@@ -183,6 +183,9 @@ async function download(url, dest, expected, onProgress = () => {}, fetchImpl = 
 }
 
 let inflight = null;
+// Resolves once any payload job in flight has finished, however it ended, so an
+// add-on update never races a payload being laid out.
+const pending = () => (inflight ? inflight.then(() => {}, () => {}) : Promise.resolve());
 // Idempotent and single-flight: the boot fetch and an Install press share it.
 // When only the pinned add-ons moved, only they are fetched - a few MB - and
 // the upstream package already on disk is kept.
@@ -213,7 +216,10 @@ async function applyComponents(dir, userData, { components = COMPONENTS, fetchIm
       const [name, url, archiveSha256] = c.archive;
       log('componentDownloading', { name: c.file, version: c.version });
       const zip = path.join(work, name);
-      await download(url, zip, { name, sha256: archiveSha256 }, () => {}, fetchImpl);
+      // A zip the in-app updater already downloaded and checked is used as is,
+      // when it is still the file the pin names; anything else is fetched.
+      if (c.localArchive && digestOf(c.localArchive) === archiveSha256) fs.copyFileSync(c.localArchive, zip);
+      else await download(url, zip, { name, sha256: archiveSha256 }, () => {}, fetchImpl);
       const out = path.join(work, `${name}.unpacked`);
       await extract(zip, out, userData, runner, ['e', '-y', `-o${out}`, zip, c.file, '-r']);
       const file = path.join(out, c.file);
@@ -289,5 +295,6 @@ async function fetchPayload(userData, { upstream = UPSTREAM, components = COMPON
 
 module.exports = {
   UPSTREAM, REQUIRED, MARKER, COMPONENTS, componentPins, payloadDir, ready, upstreamReady, componentsCurrent,
-  ensurePayload, fetchPayload, applyComponents, locateArchive, sevenZipCandidates, sha256File
+  ensurePayload, fetchPayload, applyComponents, recordComponents, locateArchive, sevenZipCandidates, sha256File,
+  download, extract, digestOf, pending
 };

@@ -359,7 +359,7 @@ test('the add-ons are the current ones, pinned in one place each', () => {
 
   assert.equal(renodx.CONSUMER.version, '8.5.0-rc10');
   assert.match(renodx.CONSUMER.archive[1], /RankFTW\/rhi-repo/);
-  assert.match(renodx.MULTIPASS.version, /^SF 26\.0928/);
+  assert.match(renodx.MULTIPASS.version, /^SF 26\.1003/);
   // The build no longer depends on a file sitting on one machine's desktop.
   const script = read('scripts', 'collect-payload.js');
   assert.match(script, /require\('\.\.\/src\/core\/renodx-release'\)/);

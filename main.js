@@ -18,6 +18,11 @@ const { contextForSteamGame, createSetupRunner, prefixWindowsDir } = require('./
 // the Vulkan route is DLSS5VKLayer (dlssnr).
 const linuxPayload = require('./src/core/linux-payload');
 const dlssnr = require('./src/core/dlssnr');
+// Linux fork: in-app updates of the app and its RenoDX add-ons. The payload
+// always carries the effective add-on pins: this release's own, or a newer
+// build the person accepted from the Updates panel.
+const updates = require('./src/core/updates');
+const addonPins = () => updates.components(app.getPath('userData'));
 // main.js is also evaluated inside bare vm sandboxes by the tests, where
 // there may be no process object at all.
 const IS_LINUX = (require('./src/core/host-platform').platform || (typeof process !== 'undefined' ? process.platform : '')) === 'linux';
@@ -227,7 +232,7 @@ function payload(raw) {
   // used once the unpack is complete and from the pinned release.
   const downloaded = IS_LINUX && typeof linuxPayload.payloadDir === 'function'
     ? linuxPayload.payloadDir(app.getPath('userData')) : null;
-  if (downloaded && linuxPayload.ready(app.getPath('userData'))) dirs.unshift(downloaded);
+  if (downloaded && linuxPayload.ready(app.getPath('userData'), undefined, addonPins())) dirs.unshift(downloaded);
   for (const dir of dirs) {
     const probe = scanSource(dir);
     if (probe.ok) {
@@ -478,9 +483,9 @@ app.whenReady().then(async () => {
   if (communityUsed()) startNotices();
   // Linux fork: fetch the DLSS 5 payload in the background on first run, and
   // tell the window how it went.
-  if (IS_LINUX && !linuxPayload.ready(app.getPath('userData'))) {
+  if (IS_LINUX && !linuxPayload.ready(app.getPath('userData'), undefined, addonPins())) {
     const tell = (code, params = {}) => { try { win?.webContents.send('job', { code, params }); } catch { /* window gone */ } };
-    linuxPayload.ensurePayload(app.getPath('userData'), { log: tell })
+    linuxPayload.ensurePayload(app.getPath('userData'), { log: tell, components: addonPins() })
       .catch((error) => tell('payloadFailed', { error: error.message }));
   }
   // The overlay bridge listens on a Windows named pipe; there is nothing on
@@ -512,6 +517,8 @@ ipcMain.handle('boot', () => {
   };
   return {
     version: require('./package.json').version,
+    // Linux fork: the About page carries the Updates panel.
+    updates: IS_LINUX,
     // Said at launch rather than at the moment somebody presses Install. The
     // app used to look completely healthy right up until it could not work.
     payloadMissing: (() => {
@@ -1631,7 +1638,10 @@ if (typeof process !== 'undefined' && typeof process.on === 'function') {
 }
 
 const releaseTag = /^v?(\d+)\.(\d+)\.(\d+)/;
+// Linux fork: "2.2.9-linux.3" is newer than "2.2.9-linux.2". Reading only the
+// first three numbers made every fork release look equal to the one before.
 function newerRelease(current, latest) {
+  if (IS_LINUX) return updates.compareApp(latest, current) > 0;
   const a = releaseTag.exec(current), b = releaseTag.exec(latest);
   if (!a || !b) return false;
   for (let i = 1; i <= 3; i++) {
@@ -1688,7 +1698,9 @@ ipcMain.handle('update-check', async () => {
 // The pins are read from the modules that own them, never restated here, so a
 // bump in one place is the whole change.
 function componentsShipped() {
-  const renodx = require('./src/core/renodx-release');
+  // The effective pins: a RenoDX build accepted from the Updates panel is what
+  // the payload carries, so it is what is measured.
+  const renodx = IS_LINUX ? updates.effectiveRelease(app.getPath('userData')) : require('./src/core/renodx-release');
   const feeder = require('./src/core/feeder-release');
   const presr = optiscaler.RELEASES.find((entry) => /pre-SR/i.test(entry.label || '')) || {};
   return {
@@ -1720,8 +1732,11 @@ function readComponentAnswer() {
   } catch { return null; }
 }
 let componentAnswer = readComponentAnswer();
-ipcMain.handle('component-check', async () => {
-  if (componentAnswer) return componentAnswer;
+async function componentCheck() {
+  // A cached answer keeps what the projects publish. What this build ships is
+  // measured again every time: after an app update the cache still holds the
+  // old app's versions, and would announce an add-on the new one already has.
+  if (componentAnswer) { refreshComponentAnswer(); return componentAnswer; }
   const version = app.getVersion();
   // Our own version carries the fork suffix (2.2.9-linux.1). What upstream can
   // be compared against is the release we forked at, not the fork's label.
@@ -1736,6 +1751,157 @@ ipcMain.handle('component-check', async () => {
     componentAnswer = { checkedAt: new Date().toISOString(), components: [], base: null, answered: false };
   }
   return componentAnswer;
+}
+ipcMain.handle('component-check', () => componentCheck());
+
+// ---------- Linux fork: the Updates panel ----------
+//
+// Everything here starts with a press in the Updates panel on the About page,
+// and every step is reported back through 'update-progress'. The work itself -
+// and every check that decides whether a download may be used - lives in
+// src/core/updates.js.
+function updateProgress(event) {
+  return (code, params = {}) => { try { event.sender.send('update-progress', { code, params }); } catch { /* window gone */ } };
+}
+// After an add-on changes, the sidebar's "behind" line must stop saying so. The
+// cached answer keeps what the projects publish; only our side of it moved.
+function refreshComponentAnswer() {
+  if (!componentAnswer || !Array.isArray(componentAnswer.components)) return;
+  const shipped = componentsShipped();
+  const base = String(app.getVersion()).replace(/-linux.*$/i, '');
+  componentAnswer = {
+    ...componentAnswer,
+    components: componentAnswer.components.map((row) => {
+      if (!(row.key in shipped) || !row.latest) return row;
+      const current = String(shipped[row.key]);
+      return { ...row, current, newer: versionCheck.compare(row.latest, current) > 0 };
+    }),
+    base: componentAnswer.base && componentAnswer.base.latest
+      ? { ...componentAnswer.base, current: base, newer: versionCheck.compare(componentAnswer.base.latest, base) > 0 }
+      : componentAnswer.base
+  };
+  try { fs.writeFileSync(componentAnswerFile(), JSON.stringify(componentAnswer), 'utf8'); } catch { /* the in-memory answer is still right */ }
+}
+// The release the panel last showed. Update installs exactly that one.
+let appOffer = null;
+ipcMain.handle('updates-status', async () => {
+  if (!IS_LINUX) return { supported: false };
+  const userData = app.getPath('userData');
+  const current = app.getVersion();
+  const [kind, appInfo, addonInfo, check] = await Promise.all([
+    updates.installKind().catch(() => ({ kind: 'unmanaged' })),
+    updates.latestApp({ repo: FORK_REPO, current, fetchImpl: fetch }).catch((error) => ({ current, latest: null, newer: false, error: error.message })),
+    updates.latestAddons({ fetchImpl: fetch }).catch((error) => ({ error: error.message })),
+    componentCheck().catch(() => null)
+  ]);
+  appOffer = appInfo.newer ? appInfo : null;
+  // The sidebar's line follows what the panel just learned, so one does not
+  // say "unavailable" while the other shows the answer.
+  if (appInfo.latest) updateAnswer = { current, latest: appInfo.latest, newer: Boolean(appInfo.newer), repo: FORK_REPO };
+  const effective = updates.effectiveRelease(userData);
+  const builtIn = require('./src/core/renodx-release');
+  const addons = Object.values(updates.ADDONS).map((addon) => {
+    const offer = addonInfo[addon.key] || {};
+    const now = effective[addon.pin].version;
+    return {
+      key: addon.key,
+      label: addon.label,
+      current: now,
+      origin: effective.origin[addon.key],
+      builtIn: builtIn[addon.pin].version,
+      latest: offer.version || null,
+      newer: Boolean(offer.version) && versionCheck.compare(offer.version, now) > 0,
+      verifiable: Boolean(offer.asset && offer.asset.sha256),
+      notes: offer.notes || null,
+      error: offer.error || addonInfo.error || null
+    };
+  });
+  return {
+    supported: true,
+    app: {
+      current,
+      latest: appInfo.latest,
+      newer: Boolean(appInfo.newer),
+      notes: appInfo.notes || `https://github.com/${FORK_REPO}/releases`,
+      error: appInfo.error || null,
+      kind: kind.kind,
+      package: kind.package || null,
+      canInstall: Boolean(appInfo.newer) && Boolean(updates.APP_ASSETS[kind.kind])
+    },
+    base: check && check.base ? check.base : null,
+    addons,
+    others: check ? (check.components || []).filter((row) => !updates.ADDONS[row.key]) : []
+  };
+});
+ipcMain.handle('updates-addon', (event, key) => exclusiveMutation(async () => {
+  if (!IS_LINUX || !Object.prototype.hasOwnProperty.call(updates.ADDONS, key)) return { ok: false, message: 'Unknown add-on' };
+  const log = updateProgress(event);
+  try {
+    const result = await updates.updateAddon(key, { userData: app.getPath('userData'), log, fetchImpl: fetch });
+    refreshComponentAnswer();
+    return result;
+  } catch (error) {
+    log('updateFailed', { error: error.message });
+    return { ok: false, message: error.message };
+  }
+}));
+ipcMain.handle('updates-addon-revert', (event, key) => exclusiveMutation(async () => {
+  if (!IS_LINUX || !Object.prototype.hasOwnProperty.call(updates.ADDONS, key)) return { ok: false, message: 'Unknown add-on' };
+  const log = updateProgress(event);
+  try {
+    const result = await updates.revertAddon(key, { userData: app.getPath('userData'), log, fetchImpl: fetch });
+    refreshComponentAnswer();
+    return result;
+  } catch (error) {
+    log('updateFailed', { error: error.message });
+    return { ok: false, message: error.message };
+  }
+}));
+ipcMain.handle('updates-app', (event) => exclusiveMutation(async () => {
+  if (!IS_LINUX) return { ok: false, message: 'Not available on this system' };
+  const log = updateProgress(event);
+  const work = path.join(app.getPath('userData'), 'app-update');
+  try {
+    const current = app.getVersion();
+    const offer = appOffer || await updates.latestApp({ repo: FORK_REPO, current, fetchImpl: fetch });
+    if (!offer.newer) return { ok: true, upToDate: true, version: current };
+    const kind = await updates.installKind();
+    if (!updates.APP_ASSETS[kind.kind]) {
+      return { ok: false, code: 'updateUnmanaged', message: 'This copy was not installed from an AppImage, rpm or deb of this app, so it cannot replace itself.' };
+    }
+    const asset = await updates.appDownload(offer, kind.kind, { fetchImpl: fetch });
+    const file = await updates.downloadApp(asset, { userData: app.getPath('userData'), log, fetchImpl: fetch });
+    const result = await updates.installApp(kind.kind, file, { target: kind.target, log });
+    fs.rmSync(work, { recursive: true, force: true });
+    log('appRestarting', { version: offer.latest });
+    // A moment for the window to show that it worked, then the new version.
+    setTimeout(() => {
+      const spec = updates.relaunchSpec({ execPath: result.relaunch || process.execPath, args: process.argv.slice(1), pid: process.pid });
+      try {
+        require('child_process').spawn(spec.file, spec.args, { detached: true, stdio: 'ignore' }).unref();
+      } catch (error) {
+        console.error('Relaunch:', error.message);
+      }
+      app.exit(0);
+    }, 1500);
+    return { ok: true, version: offer.latest, restarting: true };
+  } catch (error) {
+    fs.rmSync(work, { recursive: true, force: true });
+    log('updateFailed', { error: error.message });
+    return { ok: false, code: error.code || null, message: error.message };
+  }
+}));
+// Release pages for the Updates panel: GitHub, and only the repositories this
+// app actually updates from or reports on.
+ipcMain.handle('updates-open', async (_event, url) => {
+  let target;
+  try { target = new URL(String(url)); } catch { return false; }
+  const repos = new Set([FORK_REPO, UPSTREAM_REPO, ...Object.values(versionCheck.FEEDS).map((feed) => feed.repo),
+    ...Object.values(updates.ADDONS).map((addon) => addon.repo)]);
+  const allowed = target.protocol === 'https:' && target.hostname === 'github.com' &&
+    [...repos].some((repo) => target.pathname === `/${repo}/releases` || target.pathname.startsWith(`/${repo}/releases/`));
+  if (!allowed) return false;
+  try { await shell.openExternal(target.href); return true; } catch { return false; }
 });
 ipcMain.handle('details', async (_event, dir) => {
   const detailsPayload = payload();
@@ -1845,7 +2011,7 @@ ipcMain.handle('install', (event, dir, exePath, requestedRoute, requestedApi) =>
   // finished (or failed at boot), do it now, in front of the person.
   if (IS_LINUX && typeof linuxPayload.ensurePayload === 'function' && !payload()) {
     try {
-      await linuxPayload.ensurePayload(app.getPath('userData'), { log: (code, params) => event.sender.send('job', { code, params }) });
+      await linuxPayload.ensurePayload(app.getPath('userData'), { log: (code, params) => event.sender.send('job', { code, params }), components: addonPins() });
     } catch (error) {
       event.sender.send('job', { code: 'payloadFailed', params: { error: error.message } });
     }

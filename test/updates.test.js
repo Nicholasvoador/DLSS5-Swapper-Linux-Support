@@ -69,7 +69,7 @@ function feed() {
 test('the add-on feed is read once, by tag prefix, never a draft or a flagged prerelease', async () => {
   const asked = [];
   const latest = await updates.latestAddons({ fetchImpl: async (url) => { asked.push(url); return json(feed()); } });
-  assert.deepEqual(asked, ['https://api.github.com/repos/RankFTW/rhi-repo/releases?per_page=30'], 'one repository, one request');
+  assert.deepEqual(asked, ['https://api.github.com/repos/RankFTW/rhi-repo/releases?per_page=100&page=1'], 'one repository, one request');
   assert.equal(latest.multipass.version, 'SF 26.1003.2350');
   assert.equal(latest.multipass.asset.sha256, '1'.repeat(64));
   // rc12 is newest, but its download is not on the project's own releases.

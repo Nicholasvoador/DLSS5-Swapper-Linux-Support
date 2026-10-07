@@ -351,7 +351,10 @@ function historyText() {
 // ---------------- add-on builds ----------------
 
 async function renderAddons() {
-  const rows = await window.lab.addons();
+  const [rows, base] = await Promise.all([window.lab.addons(), window.lab.addonBase ? window.lab.addonBase().catch(() => null) : null]);
+  // Linux fork: the built-in build by name, and that there is nothing to
+  // switch on for it - the question the page used to leave open.
+  $('addonHint').textContent = base ? t('addonBuiltIn', base.version || base.file) : t('addonHint');
   $('addonList').innerHTML = rows.length ? rows.map((a) => `
     <div class="addon${a.active ? ' on' : ''}">
       <div class="mark">${a.active ? TICK : ''}</div>
@@ -371,7 +374,7 @@ async function renderAddons() {
              <svg viewBox="0 0 24 24" style="width:15px;height:15px"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>
            </button>`
         : ''}
-    </div>`).join('') : `<p class="hint">${t('logEmpty')}</p>`;
+    </div>`).join('') : `<p class="hint">${t('addonNoneAdded')}</p>`;
 
   const set = async (b, file, on) => {
     b.disabled = true;
@@ -894,22 +897,35 @@ async function showUpdateNotice() {
 // problems with different fixes. Silence when nothing is behind, and silence
 // when nothing answered - the app-version line already says when the check
 // itself failed.
+// Linux fork: look again every hour while the app is open - the main process
+// answers from its cache, and only asks GitHub once that is six hours old.
+setInterval(() => { if (document.visibilityState === 'visible') showComponentNotice(); }, 60 * 60 * 1000);
 async function showComponentNotice() {
   const link = $('statusComponents');
   if (!link || !window.lab.checkComponents) return;
   let answer = null;
-  try { answer = await window.lab.checkComponents(); } catch { return; }
-  if (!answer || !answer.answered) return;
-  const behind = (answer.components || []).filter((row) => row.newer);
+  try { answer = await window.lab.checkComponents(); } catch { answer = null; }
+  const answered = Boolean(answer && answer.answered);
   const parts = [];
-  // "the thing this fork came from has moved" and "an add-on pin is behind" are
-  // different problems with different fixes, but they share one line: both mean
-  // this build is not what it could be.
-  if (answer.base && answer.base.newer) parts.push(t('upstreamBehind', answer.base.latest));
-  if (behind.length) parts.push(t('componentsBehind', behind.map((row) => `${row.label} → ${row.latest}`).join(', ')));
+  if (answered) {
+    const behind = (answer.components || []).filter((row) => row.newer);
+    // "the thing this fork came from has moved" and "an add-on pin is behind" are
+    // different problems with different fixes, but they share one line: both mean
+    // this build is not what it could be.
+    if (answer.base && answer.base.newer) parts.push(t('upstreamBehind', answer.base.latest));
+    if (behind.length) parts.push(t('componentsBehind', behind.map((row) => `${row.label} → ${row.latest}`).join(', ')));
+  }
+  // Linux fork: RenoDX older in games already set up - fixable from the panel.
+  // Known from this PC alone, so it is said even when GitHub cannot be asked.
+  if (state.updatesSupported && window.lab.updatesGames) {
+    const local = await window.lab.updatesGames().catch(() => null);
+    const older = (local && local.games || []).filter((g) => g.files.some((f) => f.state === 'older')).length;
+    if (older) parts.push(t('gamesBehind', older));
+  }
   // Asked again after an add-on was updated in the app: nothing behind now
   // means the line goes, rather than going on announcing the old news.
-  if (!parts.length) { link.classList.add('hidden'); return; }
+  // An unanswered check is not news: whatever the line said stays.
+  if (!parts.length) { if (answered) link.classList.add('hidden'); return; }
   link.textContent = parts.join(' · ');
   link.classList.remove('hidden');
 }
@@ -987,6 +1003,26 @@ function paintUpdates() {
       ], right);
     }
     body += `<p class="hint upd-note">${t('updatesAddonNote')}</p>`;
+    // RenoDX in the games already set up, and a button for the older ones.
+    const games = s.games || [];
+    if (games.length) {
+      body += `<h4 class="upd-head">${t('updatesGames')}</h4>`;
+      for (const g of games) {
+        const older = g.files.some((f) => f.state === 'older');
+        const lines = g.files.map((f) => f.state === 'current' ? t('gameFileCurrent', f.name, f.latest)
+          : f.state === 'older' ? t('gameFileOlder', f.name, f.version, f.latest)
+            : f.state === 'chosen' ? t('gameFileChosen', f.name)
+              : f.state === 'newer' ? t('gameFileNewer', f.name, f.version, f.latest) : t('gameFileCustom', f.name));
+        // "Up to date" only when every copy is the app's current build; a
+        // build somebody chose or added stays theirs, and says so.
+        const pill = older ? versionPill(t('updatesOlderPill'), true)
+          : g.files.every((f) => f.state === 'current') ? versionPill(t('updatesUpToDate')) : versionPill(t('updatesKeptPill'));
+        body += updatesRow(esc(g.name), lines.map(esc), pill);
+      }
+      const count = games.filter((g) => g.files.some((f) => f.state === 'older')).length;
+      if (count) body += `<div class="upd-games-act"><button class="glass-btn sm" data-upd="games" data-count="${count}"${busy}>${esc(t('updatesGamesButton', count))}</button></div>`;
+      body += `<p class="hint upd-note">${t('updatesGamesNote')}</p>`;
+    }
     if (s.others && s.others.length) {
       body += `<h4 class="upd-head">${t('updatesOthers')}</h4>`;
       for (const row of s.others) {
@@ -1041,6 +1077,9 @@ document.addEventListener('click', (event) => {
   } else if (kind === 'revert') {
     const { key, label, version } = target.dataset;
     updatesUi.ask = { text: t('updatesConfirmRevert', label, version), run: () => window.lab.revertAddon(key) };
+  } else if (kind === 'games') {
+    const count = Number(target.dataset.count) || 0;
+    updatesUi.ask = { text: t('updatesConfirmGames', count), run: () => window.lab.refreshGames() };
   }
   paintUpdates();
 });

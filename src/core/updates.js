@@ -27,6 +27,7 @@ const { execFile } = require('child_process');
 const versionCheck = require('./version-check');
 const linuxPayload = require('./linux-payload');
 const renodxRelease = require('./renodx-release');
+const addonRefresh = require('./addon-refresh');
 
 const API = 'https://api.github.com/repos';
 const TIMEOUT = 10000;
@@ -57,7 +58,20 @@ async function github(route, fetchImpl, timeout = TIMEOUT) {
     headers: { accept: 'application/vnd.github+json', 'user-agent': 'DLSS5-Swapper-Linux/updates' },
     signal: AbortSignal.timeout(timeout)
   });
-  if (!response.ok) throw Object.assign(new Error(`GitHub answered ${response.status}`), { status: response.status });
+  if (!response.ok) {
+    // GitHub answers 60 unsigned API requests an hour per connection, and then
+    // 403 until the hour is up. Say that, and when it ends - "403" alone reads
+    // like something broke.
+    const remaining = response.headers && response.headers.get ? response.headers.get('x-ratelimit-remaining') : null;
+    if ((response.status === 403 || response.status === 429) && remaining === '0') {
+      const reset = Number(response.headers.get('x-ratelimit-reset')) * 1000;
+      const when = reset > 0 ? new Date(reset).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null;
+      throw Object.assign(new Error(`GitHub's limit of update checks from this connection is used up for the hour${when ? `; it resets at ${when}` : ''}. Nothing is wrong with the app; check again then.`), {
+        status: response.status, code: 'rateLimited', resetAt: reset > 0 ? reset : null
+      });
+    }
+    throw Object.assign(new Error(`GitHub answered ${response.status}`), { status: response.status });
+  }
   return response.json();
 }
 const digestHex = (asset) => {
@@ -122,6 +136,25 @@ function effectiveRelease(userData, release = renodxRelease) {
 }
 const components = (userData, release = renodxRelease) => linuxPayload.componentPins(effectiveRelease(userData, release));
 
+// rhi-repo mirrors many projects - NVIDIA's DLLs, Streamline, DLSS Enabler -
+// and RenoDX is a few of its releases among them. A run of those can push the
+// newest RenoDX past any fixed-size first page, and the panel would then say
+// nothing is newer. So: a full page of 100, and more pages only while some
+// add-on has not appeared at all. Normally that is one request.
+const PAGE = 100;
+const MAX_PAGES = 4;
+async function releasePages(repo, prefixes, fetchImpl, timeout) {
+  const rows = [];
+  for (let page = 1; page <= MAX_PAGES; page += 1) {
+    const batch = await github(`${repo}/releases?per_page=${PAGE}&page=${page}`, fetchImpl, timeout);
+    if (!Array.isArray(batch)) break;
+    rows.push(...batch);
+    const missing = prefixes.some((prefix) => !rows.some((row) => String(row.tag_name || '').startsWith(prefix)));
+    if (!missing || batch.length < PAGE) break;
+  }
+  return rows;
+}
+
 // The newest build of each add-on, plus its download. Both add-ons come from one
 // repository, so this is one request. The channel matches the version check:
 // RenoDX publishes its consumers as rc builds, and that is the channel everyone
@@ -130,7 +163,10 @@ async function latestAddons({ fetchImpl = global.fetch, timeout = TIMEOUT } = {}
   const requests = new Map();
   const out = {};
   for (const addon of Object.values(ADDONS)) {
-    if (!requests.has(addon.repo)) requests.set(addon.repo, github(`${addon.repo}/releases?per_page=30`, fetchImpl, timeout));
+    if (!requests.has(addon.repo)) {
+      const prefixes = Object.values(ADDONS).filter((other) => other.repo === addon.repo).map((other) => other.prefix);
+      requests.set(addon.repo, releasePages(addon.repo, prefixes, fetchImpl, timeout));
+    }
   }
   for (const addon of Object.values(ADDONS)) {
     let rows;
@@ -221,6 +257,8 @@ async function updateAddon(key, { userData, release = renodxRelease, offer = nul
       applied = true;
     }
     writeOverrides(userData, { ...readOverrides(userData), [key]: pin });
+    // Games set up from now on get this build; a later one may replace it there.
+    addonRefresh.rememberBuild(userData, current.file, pin.sha256, latest.version);
     log('addonReady', { label: addon.label, version: latest.version });
     return { ok: true, version: latest.version, previous: current.version, sha256: pin.sha256, applied };
   } finally {

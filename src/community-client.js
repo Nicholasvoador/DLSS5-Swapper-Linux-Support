@@ -6,6 +6,17 @@ const crypto = require('crypto');
 
 const DEFAULT_API = 'https://5.rakanki.com';
 const ADMIN_TOKEN_PATTERN = /^dlss5_admin_[A-Za-z0-9_-]{43}$/;
+// Linux fork: how long a request may take. The service sits behind Cloudflare,
+// which gives up on the server itself at about 30 seconds and answers 502. At
+// 10 seconds the app gave up first on a server that was slow but answering
+// (21-26 s measured), and said it was the person's connection. Waiting past
+// Cloudflare's own limit means the answer is the server's or Cloudflare's,
+// never a guess.
+const TIMEOUT_MS = 35_000;
+// What Cloudflare and a struggling server answer with. A body from the service
+// itself (with an `error` code) is its own answer and is reported as such.
+const SERVER_TROUBLE = new Set([500, 502, 503, 504, 520, 521, 522, 523, 524, 525, 526, 527, 530]);
+const NOT_YOUR_PC = 'The community service is run by the original DLSS 5 Swapper project, and nothing on this PC needs fixing. Try again in a few minutes.';
 
 function validState(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
@@ -50,9 +61,16 @@ class CommunityClient {
     try {
       response = await this.fetch(this.baseUrl + pathname, {
         method, headers, body: body === undefined ? undefined : JSON.stringify(body),
-        signal: AbortSignal.timeout(10_000)
+        signal: AbortSignal.timeout(TIMEOUT_MS)
       });
     } catch (error) {
+      // Out of time is not the same as no connection: the request reached the
+      // service and it did not answer.
+      if (error && (error.name === 'TimeoutError' || error.name === 'AbortError')) {
+        throw Object.assign(new Error(`The community server is taking too long to answer. ${NOT_YOUR_PC}`), {
+          code: 'community_slow', cause: error
+        });
+      }
       throw Object.assign(new Error('Community service is unavailable. Check your connection and try again.'), {
         code: 'community_offline', cause: error
       });
@@ -61,6 +79,11 @@ class CommunityClient {
     let data = {};
     try { data = await response.json(); } catch { /* handled as a status error below */ }
     if (!response.ok) {
+      if (SERVER_TROUBLE.has(response.status) && !data.error) {
+        throw Object.assign(new Error(`The community server is having trouble right now (error ${response.status}). ${NOT_YOUR_PC}`), {
+          code: 'community_down', status: response.status
+        });
+      }
       throw Object.assign(new Error(data.message || 'Community request failed.'), {
         code: data.error || 'community_failed', status: response.status
       });
@@ -374,4 +397,4 @@ class CommunityClient {
   }
 }
 
-module.exports = { CommunityClient, DEFAULT_API, ADMIN_TOKEN_PATTERN };
+module.exports = { CommunityClient, DEFAULT_API, ADMIN_TOKEN_PATTERN, TIMEOUT_MS, SERVER_TROUBLE };

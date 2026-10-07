@@ -16,6 +16,10 @@
       nav: 'Chat', title: 'Community chat', subtitle: 'Share results, screenshots and game discoveries with everyone.',
       retention: 'Images expire after 24 hours', refresh: 'Refresh', older: 'Load earlier messages',
       emptyTitle: 'Start the conversation', emptyBody: 'Share a tip, screenshot, or game card.',
+      failedTitle: 'Chat could not load', stale: (at, why) => `Showing messages saved on ${at}. ${why}`,
+      loadingTitle: 'Loading messages…', slowTitle: 'The chat server is slow right now',
+      slowBody: 'Still waiting for it. The community service is run by the original DLSS 5 Swapper project; nothing on this PC needs fixing.',
+      unreachable: (why) => `New messages cannot be loaded right now. ${why}`,
       placeholder: 'Message the community…', hint: 'Enter to send · Shift+Enter for a new line · paste or drop images',
       newMessages: 'New messages ↓', addTo: 'ADD TO MESSAGE', share: 'Share something', photos: 'Photos',
       photosSub: 'Up to 4 images', game: 'Game card', gameSub: 'Search community results', findGame: 'Find a game',
@@ -36,6 +40,10 @@
       nav: 'الشات', title: 'شات المجتمع', subtitle: 'شارك النتائج والصور واكتشافات الألعاب مع الجميع.',
       retention: 'تُحذف الصور بعد 24 ساعة', refresh: 'تحديث', older: 'تحميل رسائل أقدم',
       emptyTitle: 'ابدأ المحادثة', emptyBody: 'شارك نصيحة أو صورة أو بطاقة لعبة.',
+      failedTitle: 'تعذّر تحميل الدردشة', stale: (at, why) => `تُعرض الرسائل المحفوظة في ${at}. ${why}`,
+      unreachable: (why) => `لا يمكن تحميل الرسائل الجديدة الآن. ${why}`,
+      loadingTitle: 'جارٍ تحميل الرسائل…', slowTitle: 'خادم الدردشة بطيء الآن',
+      slowBody: 'ما زلنا ننتظره. خدمة المجتمع يديرها مشروع DLSS 5 Swapper الأصلي، ولا شيء على هذا الجهاز يحتاج إلى إصلاح.',
       placeholder: 'اكتب للمجتمع…', hint: 'Enter للإرسال · Shift+Enter لسطر جديد · يمكنك لصق الصور أو سحبها',
       newMessages: 'رسائل جديدة ↓', addTo: 'إضافة إلى الرسالة', share: 'ماذا تريد أن تشارك؟', photos: 'صور',
       photosSub: 'حتى 4 صور', game: 'بطاقة لعبة', gameSub: 'ابحث في نتائج المجتمع', findGame: 'ابحث عن لعبة',
@@ -136,11 +144,40 @@
       html += messageHtml(message, state.messages[index - 1]);
     });
     $('chatMessages').innerHTML = html;
-    $('chatEmpty').classList.toggle('hidden', state.messages.length > 0);
+    // Linux fork: an empty room and a room that never loaded are different
+    // things. The second used to say "Start the conversation".
+    const empty = $('chatEmpty'), w = words(), fallback = L.en;
+    // Still waiting for the first answer: any repaint (opening the tab, a
+    // language change) keeps saying so instead of offering an empty room.
+    if (state.loading && !state.messages.length) paintLoading();
+    else {
+      empty.classList.toggle('hidden', state.messages.length > 0);
+      empty.classList.toggle('failed', Boolean(state.failed) && !state.messages.length);
+      empty.innerHTML = state.failed && !state.messages.length
+        ? `<i>⚠️</i><b>${esc(w.failedTitle || fallback.failedTitle)}</b><span>${esc(state.failed)}</span>`
+        : `<i>💬</i><b>${esc(w.emptyTitle)}</b><span>${esc(w.emptyBody)}</span>`;
+    }
+    paintStatus();
     $('chatOlder').classList.toggle('hidden', !state.hasMore);
     if (stick || wasBottom) requestAnimationFrame(() => { room.scrollTop = room.scrollHeight; });
   }
 
+  // Linux fork: what the room is showing when the server is not answering -
+  // messages kept from the last time it did, or the last messages that loaded.
+  function paintStatus() {
+    const node = $('chatStatus');
+    if (!node) return;
+    const w = words(), fallback = L.en;
+    let line = '';
+    if (state.stale) {
+      const at = new Date(state.stale.at).toLocaleString(window.i18n?.getLang?.() || undefined, { dateStyle: 'medium', timeStyle: 'short' });
+      line = (w.stale || fallback.stale)(at, state.stale.message);
+    } else if (state.failed && state.messages.length) {
+      line = (w.unreachable || fallback.unreachable)(state.failed);
+    }
+    node.textContent = line;
+    node.classList.toggle('hidden', !line);
+  }
   function updateUnread(count) {
     state.unread = Math.max(0, count || 0);
     $('chatNew').classList.toggle('hidden', !state.unread);
@@ -177,21 +214,48 @@
     state.version = Number(feed.version) || state.version;
     return newCount;
   }
+  // Linux fork: the first load can take a quarter of a minute when the
+  // community server is struggling. The room says it is loading, then that the
+  // server is slow - it used to sit blank.
+  function paintLoading() {
+    if (!state.loading || state.messages.length) return;
+    const empty = $('chatEmpty'), w = words(), fallback = L.en, slow = state.loading === 'slow';
+    empty.classList.remove('hidden', 'failed');
+    empty.innerHTML = `<i>⏳</i><b>${esc(slow ? (w.slowTitle || fallback.slowTitle) : (w.loadingTitle || fallback.loadingTitle))}</b>` +
+      (slow ? `<span>${esc(w.slowBody || fallback.slowBody)}</span>` : '');
+  }
   async function refresh({ first = false, manual = false } = {}) {
     if (state.busy) return;
     state.busy = true;
     const bottom = atBottom();
+    let slow = null;
+    if ((first || manual) && !state.messages.length) {
+      state.loading = 'loading';
+      paintLoading();
+      slow = setTimeout(() => { if (state.loading) { state.loading = 'slow'; paintLoading(); } }, 8000);
+    }
     try {
       const answer = await window.lab.communityChatFeed({ limit: 50, etag: manual ? null : state.etag });
+      clearTimeout(slow);
+      state.loading = null;
       if (!answer?.ok) throw new Error(answer?.message || words().uploadFailed);
-      if (answer.notModified) return;
+      // Not modified is the server answering: what is on screen is current.
+      if (answer.notModified) { if (state.failed || state.stale) { state.failed = null; state.stale = null; paintStatus(); } return; }
       state.etag = answer.etag || null;
+      state.failed = null;
+      state.stale = answer.stale || null;
       const count = mergeLatest(answer.feed || {}, first);
       paintMessages({ stick: first || bottom });
       if (!bottom && count) updateUnread(state.unread + count);
       else if (bottom) updateUnread(0);
-    } catch (error) { if (manual || first) notice(error.message, true); }
-    finally { state.busy = false; }
+    } catch (error) {
+      // Kept until a request gets through, so the room says what is wrong for
+      // as long as it is wrong - not for four seconds under the input box.
+      state.failed = error.message;
+      paintMessages();
+      if (manual || first) notice(error.message, true);
+    }
+    finally { clearTimeout(slow); state.loading = null; state.busy = false; }
   }
   async function loadOlder() {
     if (!state.messages.length || state.busy) return;
@@ -555,11 +619,16 @@
     const map = { navChat:'nav',chatTitle:'title',chatSubtitle:'subtitle',chatRetention:'retention',chatRefresh:'refresh',chatOlder:'older',chatComposeHint:'hint',chatAttachTitle:'share',chatGameSearchLabel:'findGame' };
     for (const [id,key] of Object.entries(map)) if ($(id)) $(id).textContent = w[key];
     $('chatInput').placeholder = w.placeholder; $('chatGameSearch').placeholder = w.findPlaceholder;
-    $('chatEmpty').innerHTML = `<i>💬</i><b>${esc(w.emptyTitle)}</b><span>${esc(w.emptyBody)}</span>`;
+    // Linux fork: this box also says "loading", "slow" and "could not load".
+    // It is repainted as whichever it is - it used to be reset to the empty
+    // room every time the tab opened, mid-load or after a failure.
+    if (state.loading && !state.messages.length) paintLoading();
+    else if (state.failed && !state.messages.length) paintMessages();
+    else $('chatEmpty').innerHTML = `<i>💬</i><b>${esc(w.emptyTitle)}</b><span>${esc(w.emptyBody)}</span>`;
     $('chatChoosePhotos').querySelector('b').textContent = w.photos; $('chatChoosePhotos').querySelector('span').textContent = w.photosSub;
     $('chatChooseGame').querySelector('b').textContent = w.game; $('chatChooseGame').querySelector('span').textContent = w.gameSub;
     document.querySelector('.chat-dialog-kicker').textContent = w.addTo;
-    $('chatZoomReset').textContent = w.fit; paintDraft(); if (state.messages.length) paintMessages();
+    $('chatZoomReset').textContent = w.fit; paintDraft(); if (state.messages.length || state.failed) paintMessages();
   }
   async function render() {
     applyLanguage();

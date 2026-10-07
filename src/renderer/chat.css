@@ -178,3 +178,8 @@
 @keyframes chat-flash { 0%, 60% { box-shadow: 0 0 0 2px var(--accent), 0 0 24px color-mix(in srgb, var(--accent) 40%, transparent); } 100% { box-shadow: 0 0 0 0 transparent; } }
 .chat-message.chat-flash { border-radius: 14px; animation: chat-flash 2.6s ease-out; }
 @media (prefers-reduced-motion: reduce) { .chat-message.chat-flash { animation: none; box-shadow: 0 0 0 2px var(--accent); } }
+
+/* Linux fork: the chat server is slow or failing - say so above the messages. */
+.chat-status { position:sticky; top:0; z-index:2; margin:0 0 12px; padding:9px 12px; border-radius:12px; font-size:12px; line-height:1.5;
+  color:var(--text); background:color-mix(in srgb,#e5a53b 14%,var(--panel)); border:1px solid color-mix(in srgb,#e5a53b 45%,transparent); }
+.chat-empty.failed i { background:color-mix(in srgb,#e5535e 18%,transparent); }

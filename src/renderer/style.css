@@ -893,6 +893,7 @@ select option { background: var(--panel); color: var(--text); }
 .upd-log { margin: 14px 0 0; padding: 12px 14px; border-radius: 12px; background: var(--glass); color: var(--text);
   font: 12px/1.7 ui-monospace, 'JetBrains Mono', monospace; white-space: pre-wrap; word-break: break-word; max-height: 220px; overflow: auto; }
 .status-update.muted.linkable { pointer-events: auto; cursor: pointer; }
+.upd-games-act { display: flex; justify-content: flex-end; margin: 10px 0 0; }
 
 /* ---------------- game sheet ---------------- */
 .overlay {

@@ -23,6 +23,7 @@ const dlssnr = require('./src/core/dlssnr');
 // build the person accepted from the Updates panel.
 const updates = require('./src/core/updates');
 const addonPins = () => updates.components(app.getPath('userData'));
+const addonRefresh = require('./src/core/addon-refresh');
 // main.js is also evaluated inside bare vm sandboxes by the tests, where
 // there may be no process object at all.
 const IS_LINUX = (require('./src/core/host-platform').platform || (typeof process !== 'undefined' ? process.platform : '')) === 'linux';
@@ -60,6 +61,11 @@ const { HistoryStore, knownFolders, fromManifests } = require('./src/core/histor
 const gameMenu = require('./src/core/game-menu');
 const versionCheck = require('./src/core/version-check');
 const { CommunityClient, ADMIN_TOKEN_PATTERN } = require('./src/community-client');
+// Linux fork: the last good answers of the read-only community views, shown
+// (marked as such) while the community server is slow or failing.
+const { LastGood, withLastGood, viewKey } = require('./src/community-last-good');
+let lastGoodStore;
+const lastGood = () => lastGoodStore || (lastGoodStore = new LastGood({ file: path.join(app.getPath('userData'), 'community-last-good.json') }));
 const { AdminVault } = require('./src/admin-vault');
 let historyStore;
 const history = () => historyStore || (historyStore = new HistoryStore(path.join(app.getPath('userData'), 'history.jsonl')));
@@ -73,6 +79,9 @@ const community = () => communityClient || (communityClient = new CommunityClien
   // Only ever set by hand, to point a development build at a server running
   // locally. Unset - which is every installed copy - it is the real one.
   baseUrl: process.env.DLSS5_COMMUNITY_API || undefined,
+  // The process's own fetch, named here so a test can stand in for the
+  // network; it is the same fetch the client would have used anyway.
+  fetchImpl: typeof fetch === 'function' ? fetch : undefined,
   getAdminToken: () => adminAccess().load()
 }));
 const communityAnswer = async work => {
@@ -118,7 +127,21 @@ const KNOWN = {
   '88116071ef689864': {
     name: 'v4.7',
     shipped: true
-  }
+  },
+  // Linux fork: the RenoDX builds this app has shipped since, so a copy added
+  // by hand is named and explained rather than listed as its bare file. The
+  // one the app ships right now is never listed at all: see addonLibrary.
+  '400f6141d6c2c672': {
+    name: 'RenoDX DLSS 5 · 6.5.3',
+    notes: ['The build DLSS 5 Swapper 2.2.8 and 2.2.9 shipped. The app now ships a newer one and installs it for you; switch this on only to use 6.5.3 instead.']
+  },
+  'abb59b60f549653d': {
+    name: 'RenoDX DLSS 5 · 8.5.0-rc10',
+    notes: ['The build DLSS 5 Swapper 2.2.9-linux.2 to .4 shipped. Listed here only when the app has moved on to a newer build; switch it on to use 8.5.0-rc10 instead.']
+  },
+  '9ada556a2f76d718': { name: 'RenoDX multipass · SF 26.0927.2125', notes: ['A multipass (DLSS Tool) build. The multipass route installs its own, current build.'] },
+  'b22c5cfb0330039c': { name: 'RenoDX multipass · SF 26.0928.0205', notes: ['A multipass (DLSS Tool) build. The multipass route installs its own, current build.'] },
+  '8f0fc4a79f2a4b12': { name: 'RenoDX multipass · SF 26.1003.2350', notes: ['A multipass (DLSS Tool) build. The multipass route installs its own, current build.'] }
 };
 
 // An add-on's identity is the hash of its contents, and the add-ons page asks
@@ -157,7 +180,8 @@ function describe(file, label) {
     id,
     path: file,
     file: path.basename(file),
-    label: known.name || label,
+    // A build nobody recognises is still something: its file name, not "null".
+    label: known.name || label || path.basename(file),
     size,
     // A build with no version resource reports 0.0.0.0, which says nothing.
     version: version && version !== '0.0.0.0' ? version : null
@@ -194,7 +218,16 @@ function addonLibrary() {
   };
 
   const p = payload(true);
-  if (p && p.source.addon) add(p.source.addon, null);
+  if (p && p.source.addon) {
+    add(p.source.addon, null);
+    // Linux fork: the payload's add-on IS the built-in build, whatever build
+    // it is. It used to be recognised only by a hash table last updated for
+    // v4.7, so every newer build - 6.5.3 upstream, 8.5.0-rc10 here, and any
+    // build the Updates panel brings in - was listed as an unnamed optional
+    // add-on with a switch. Any copy of it found elsewhere collapses into it.
+    const base = found.find((row) => path.resolve(row.path) === path.resolve(p.source.addon));
+    if (base) base.shipped = true;
+  }
 
   for (const box of addonFolders()) {
     let dropped = [];
@@ -708,9 +741,17 @@ ipcMain.handle('community-admin-logout', () => communityAnswer(async () => {
 ipcMain.handle('community-delete-me', () => communityAnswer(async () => ({
   result: await community().deleteMe()
 })));
-ipcMain.handle('community-cards', (_event, filters) => communityAnswer(async () => ({
-  ...(await community().cardsPage(filters && typeof filters === 'object' ? filters : {}))
-})));
+// The saved answer for a view, read from this PC only - painted while the
+// fresh one is on its way. Nothing is kept until Community has been used.
+ipcMain.handle('community-cards-kept', (_event, filters) => {
+  const input = filters && typeof filters === 'object' ? filters : {};
+  const entry = lastGood().recall(viewKey('cards', input));
+  return entry ? { ok: true, ...entry.answer, savedAt: entry.at } : null;
+});
+ipcMain.handle('community-cards', (_event, filters) => communityAnswer(async () => {
+  const input = filters && typeof filters === 'object' ? filters : {};
+  return withLastGood(lastGood(), viewKey('cards', input), async () => ({ ...(await community().cardsPage(input)) }));
+}));
 // The games on this machine as the community would name them: every key a
 // report about each could have been filed under, worked out by the server's
 // own rules from the library and the last scan.
@@ -754,7 +795,7 @@ ipcMain.handle('community-for-game', (_event, dir) => communityAnswer(async () =
 }));
 // The graphics cards people reported with, and this machine's own among them.
 ipcMain.handle('community-gpus', () => communityAnswer(async () => {
-  const [gpus, rows] = await Promise.all([community().gpus(), guards.gpuInfo().catch(() => null)]);
+  const [gpus, rows] = await Promise.all([withLastGood(lastGood(), 'gpus', async () => ({ gpus: await community().gpus() })).then((answer) => answer.gpus), guards.gpuInfo().catch(() => null)]);
   const mine = Array.isArray(rows) && rows[0] ? gpuModel.normaliseGpu(rows[0].name) : null;
   return { gpus, mine };
 }));
@@ -794,11 +835,16 @@ ipcMain.handle('community-admin-moderate', (_event, kind, id, action) => communi
 })));
 ipcMain.handle('community-chat-feed', (_event, options) => communityAnswer(async () => {
   const input = options && typeof options === 'object' ? options : {};
-  const result = await community().chatFeed({
-    before: input.before, limit: Math.min(Math.max(Number(input.limit) || 50, 1), 100),
-    etag: typeof input.etag === 'string' ? input.etag : null
-  });
-  return result.notModified ? result : { feed: result.data, etag: result.etag };
+  const run = async () => {
+    const result = await community().chatFeed({
+      before: input.before, limit: Math.min(Math.max(Number(input.limit) || 50, 1), 100),
+      etag: typeof input.etag === 'string' ? input.etag : null
+    });
+    return result.notModified ? result : { feed: result.data, etag: result.etag };
+  };
+  // Only the newest page is kept; scrolling back needs the server.
+  if (input.before) return run();
+  return withLastGood(lastGood(), 'chat:latest', run, { keep: (answer) => Boolean(answer.feed) });
 }));
 ipcMain.handle('community-chat-people', () => communityAnswer(async () => ({
   people: await community().chatPeople()
@@ -1402,6 +1448,17 @@ ipcMain.handle('set-optiscaler-build', (_event, dir, version) => {
 });
 
 ipcMain.handle('addons', () => addonLibrary());
+// Linux fork: the built-in build, named, for the line at the top of the page.
+ipcMain.handle('addon-base', () => {
+  const p = payload(true);
+  if (!p || !p.source.addon) return null;
+  const effective = IS_LINUX ? updates.effectiveRelease(app.getPath('userData')) : null;
+  return {
+    file: path.basename(p.source.addon),
+    version: effective ? effective.CONSUMER.version : (pe.getFileVersion(p.source.addon) || null),
+    updated: Boolean(effective && effective.origin.renodx === 'updated')
+  };
+});
 
 // Switching one on leaves the others alone. The single exception is a build
 // that would be written under a name another switched-on build already claims:
@@ -1736,7 +1793,13 @@ async function componentCheck() {
   // A cached answer keeps what the projects publish. What this build ships is
   // measured again every time: after an app update the cache still holds the
   // old app's versions, and would announce an add-on the new one already has.
-  if (componentAnswer) { refreshComponentAnswer(); return componentAnswer; }
+  // Linux fork: and it expires in memory too. The app lives in the tray for
+  // days; without this, a RenoDX released after it started was never seen
+  // until a restart. A check that failed is retried sooner.
+  const age = componentAnswer ? Date.now() - Date.parse(componentAnswer.checkedAt) : Infinity;
+  const ttl = componentAnswer && componentAnswer.answered === false ? 30 * 60 * 1000 : COMPONENT_TTL_MS;
+  if (componentAnswer && age >= 0 && age <= ttl) { refreshComponentAnswer(); return componentAnswer; }
+  componentAnswer = null;
   const version = app.getVersion();
   // Our own version carries the fork suffix (2.2.9-linux.1). What upstream can
   // be compared against is the release we forked at, not the fork's label.
@@ -1830,6 +1893,7 @@ ipcMain.handle('updates-status', async () => {
     },
     base: check && check.base ? check.base : null,
     addons,
+    games: (() => { const targets = refreshTargets(); return targets ? installedRenodx(targets) : []; })(),
     others: check ? (check.components || []).filter((row) => !updates.ADDONS[row.key]) : []
   };
 });
@@ -1890,6 +1954,54 @@ ipcMain.handle('updates-app', (event) => exclusiveMutation(async () => {
     log('updateFailed', { error: error.message });
     return { ok: false, code: error.code || null, message: error.message };
   }
+}));
+// RenoDX in the games already set up: the build each one has against the one
+// the app has now. Only copies the app put there are ever replaced; see
+// src/core/addon-refresh.js for what is left alone and why.
+function refreshTargets() {
+  if (!IS_LINUX) return null;
+  const userData = app.getPath('userData');
+  if (!linuxPayload.ready(userData, undefined, addonPins())) return null;
+  const dir = linuxPayload.payloadDir(userData);
+  const effective = updates.effectiveRelease(userData);
+  return {
+    [addonRefresh.CONSUMER]: { sha256: effective.CONSUMER.sha256, version: effective.CONSUMER.version, source: path.join(dir, 'renodx-dlss5.addon64') },
+    [addonRefresh.MULTIPASS]: { sha256: effective.MULTIPASS.sha256, version: effective.MULTIPASS.version, source: path.join(dir, 'feeder', 'host64', 'renodx-dlss.addon64') }
+  };
+}
+function installedRenodx(targets) {
+  const known = addonRefresh.knownBuilds(app.getPath('userData'));
+  const chosen = new Set(enabledAddons().map((file) => addonRefresh.sha256File(file)).filter(Boolean));
+  const games = [];
+  for (const { dir, name } of knownFolders(loadState(), lastGames)) {
+    const game = addonRefresh.inspectGame(dir, targets, known, chosen);
+    if (game) games.push({ ...game, name: name || gameName(dir) });
+  }
+  return games;
+}
+ipcMain.handle('updates-games', () => {
+  const targets = refreshTargets();
+  if (!targets) return { ok: false, games: [] };
+  return { ok: true, games: installedRenodx(targets) };
+});
+ipcMain.handle('updates-games-refresh', (event) => exclusiveMutation(async () => {
+  const targets = refreshTargets();
+  if (!targets) return { ok: false, message: 'The DLSS 5 files are not ready yet.' };
+  const log = updateProgress(event);
+  const results = [];
+  for (const game of installedRenodx(targets)) {
+    if (!game.files.some((file) => file.state === 'older')) continue;
+    try {
+      const done = await addonRefresh.refreshGame(game, targets, { assertClosed: (dir, exe) => guards.assertGameClosed(dir, exe) });
+      for (const item of done.updated) log('gameAddonUpdated', { game: game.name, file: path.basename(item.rel), from: item.from, to: item.to });
+      results.push({ dir: game.dir, ok: true, updated: done.updated.length });
+    } catch (error) {
+      log('gameAddonSkipped', { game: game.name, error: error.message });
+      results.push({ dir: game.dir, ok: false, message: error.message });
+    }
+  }
+  const updated = results.reduce((sum, row) => sum + (row.updated || 0), 0);
+  return { ok: results.every((row) => row.ok), updated, results };
 }));
 // Release pages for the Updates panel: GitHub, and only the repositories this
 // app actually updates from or reports on.

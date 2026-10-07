@@ -110,7 +110,9 @@ async function json(url, fetchImpl, timeout) {
 // component's own version - rc10 and rc5 sit beside each other - so callers
 // reduce by comparison, never by position.
 async function repoReleases(repo, { fetchImpl, timeout }) {
-  const body = await json(`${API}/${repo}/releases?per_page=30`, fetchImpl, timeout);
+  // 100, not 30: rhi-repo mirrors many projects besides RenoDX, and a short
+  // page can miss the newest RenoDX entirely (see updates.js releasePages).
+  const body = await json(`${API}/${repo}/releases?per_page=100`, fetchImpl, timeout);
   const rows = Array.isArray(body) ? body : (body && body.tag_name ? [body] : []);
   return rows
     .map((row) => {

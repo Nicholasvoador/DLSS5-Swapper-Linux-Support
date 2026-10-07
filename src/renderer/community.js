@@ -5,7 +5,7 @@
   const L = {
     en: {
       title: 'Community-tested games', subtitle: 'Real results from DLSS 5 Swapper users.', refresh: 'Refresh', search: 'Search games', route: 'Route', api: 'Rendering API', result: 'Result',
-      showAllReports: 'Show all reports', scopeAll: 'Everyone', scopeMine: 'My games', scopeReports: 'My comments', mineHint: 'Only the games installed on this PC', reportsHint: 'The games you reported on', reportsTotal: n => `You reported on ${n} game${n === 1 ? '' : 's'}`, reportsEmpty: 'You have not reported on any game yet.', showingMine: n => `Your ${n} report${n === 1 ? '' : 's'}`, sortLabel: 'Sort', sortRecent: 'Most recent', sortReports: 'Most reports', sortTitle: 'A–Z', noReportsYet: n => `On this PC, no reports yet · ${n}`, noReportsHint: 'Open one to install it - then be the first to say how it went.', installedBadge: 'DLSS 5 installed', onPc: 'On this PC', gpuLabel: 'Graphics card', allGpus: 'All graphics cards', myGpu: model => `My card · ${model}`, mineEmpty: 'None of the games on this PC have community reports yet.', mineTotal: n => `${n} of your games have reports`, showingGpu: (model, n) => `${n} report${n === 1 ? '' : 's'} on ${model}`, allRoutes: 'All routes', allApis: 'All APIs', allResults: 'All results', working: 'Working', issues: 'Works with issues', broken: 'Not working', mixed: 'Mixed', clear: 'Clear filters', loading: 'Loading community results…', empty: 'No matching community reports yet.', offline: 'Community service is unavailable. Check your connection and try again.',
+      showAllReports: 'Show all reports', scopeAll: 'Everyone', scopeMine: 'My games', scopeReports: 'My comments', mineHint: 'Only the games installed on this PC', reportsHint: 'The games you reported on', reportsTotal: n => `You reported on ${n} game${n === 1 ? '' : 's'}`, reportsEmpty: 'You have not reported on any game yet.', showingMine: n => `Your ${n} report${n === 1 ? '' : 's'}`, sortLabel: 'Sort', sortRecent: 'Most recent', sortReports: 'Most reports', sortTitle: 'A–Z', noReportsYet: n => `On this PC, no reports yet · ${n}`, noReportsHint: 'Open one to install it - then be the first to say how it went.', installedBadge: 'DLSS 5 installed', onPc: 'On this PC', gpuLabel: 'Graphics card', allGpus: 'All graphics cards', myGpu: model => `My card · ${model}`, mineEmpty: 'None of the games on this PC have community reports yet.', mineTotal: n => `${n} of your games have reports`, showingGpu: (model, n) => `${n} report${n === 1 ? '' : 's'} on ${model}`, allRoutes: 'All routes', allApis: 'All APIs', allResults: 'All results', working: 'Working', issues: 'Works with issues', broken: 'Not working', mixed: 'Mixed', clear: 'Clear filters', loading: 'Loading community results…', empty: 'No matching community reports yet.', offline: 'Community service is unavailable. Check your connection and try again.', slowLoading: 'The community server is slow right now. Still waiting for it…', savedChecking: (at) => `Showing the results saved on ${at}. Checking for newer results…`, staleResults: (at, why) => `Showing the results saved on ${at}. ${why}`,
       reports: n => `${n} report${n === 1 ? '' : 's'}`, comments: n => `${n} comment${n === 1 ? '' : 's'}`, noComments: 'No comments yet.', updated: 'Live updates are on while this card is open.',
       share: 'Share your result', shareHint: 'Share your result and help the community.', why: 'Your report helps improve compatibility for everyone.', routeUsed: 'Route used', choose: 'Choose…', unknown: 'No results yet', yourResult: 'Your result', optionalComment: 'Optional comment', sent: 'Data that will be sent', cancel: 'Cancel', submit: 'Submit report', submitting: 'Submitting…', chooseRoute: 'Choose the route you actually used.', chooseVerdict: 'Choose your result.', sentOk: 'Your report was added to the community.',
       profile: 'Community profile', profileHint: 'Your fixed avatar and display name appear beside your comments. A name can change once a week.', displayName: 'Display name', chooseIcon: 'Choose an avatar', save: 'Save profile', saved: 'Profile saved.', adminMode: 'Administrator mode', adminModeHint: 'Your replies are sent with your official name, avatar and ADMIN badge.', adminLogout: 'Sign out of administrator mode', adminLoggedOut: 'Administrator mode signed out.', unnamed: 'Anonymous', addGame: 'Add to community-tested games', reactionFailed: 'Could not save that reaction.',
@@ -39,7 +39,7 @@
     },
     ar: {
       title: 'ألعاب اختبرها المجتمع', subtitle: 'نتائج حقيقية من مستخدمي DLSS 5 Swapper.', refresh: 'تحديث', search: 'بحث عن لعبة', route: 'طريقة التثبيت', api: 'واجهة الرسوم', result: 'النتيجة',
-      showAllReports: 'اعرض كل التقارير', scopeAll: 'الجميع', scopeMine: 'ألعابي', scopeReports: 'تعليقاتي', mineHint: 'الألعاب المثبّتة على جهازك فقط', reportsHint: 'الألعاب التي كتبت عنها تقريرًا', reportsTotal: n => `كتبت عن ${n} لعبة`, reportsEmpty: 'لم تكتب تقريرًا عن أي لعبة بعد.', showingMine: n => `تقاريرك: ${n}`, sortLabel: 'الترتيب', sortRecent: 'الأحدث', sortReports: 'الأكثر تقارير', sortTitle: 'أبجديًا', noReportsYet: n => `على جهازك، بلا تقارير بعد · ${n}`, noReportsHint: 'افتح أيًّا منها لتثبّت عليه، ثم كن أول من يكتب النتيجة.', installedBadge: 'DLSS 5 مثبّت', onPc: 'على جهازك', gpuLabel: 'كرت الشاشة', allGpus: 'كل كروت الشاشة', myGpu: model => `كرتي · ${model}`, mineEmpty: 'لا توجد تقارير من المجتمع لأي لعبة على جهازك حتى الآن.', mineTotal: n => `${n} من ألعابك عليها تقارير`, showingGpu: (model, n) => `${n} تقرير على ${model}`, allRoutes: 'كل الطرق', allApis: 'كل الواجهات', allResults: 'كل النتائج', working: 'تعمل', issues: 'تعمل مع مشاكل', broken: 'لا تعمل', mixed: 'نتائج مختلطة', clear: 'مسح الفلاتر', loading: 'جاري تحميل نتائج المجتمع…', empty: 'لا توجد تقارير مطابقة حتى الآن.', offline: 'خدمة المجتمع غير متاحة. تحقق من اتصالك وحاول مجددًا.',
+      showAllReports: 'اعرض كل التقارير', scopeAll: 'الجميع', scopeMine: 'ألعابي', scopeReports: 'تعليقاتي', mineHint: 'الألعاب المثبّتة على جهازك فقط', reportsHint: 'الألعاب التي كتبت عنها تقريرًا', reportsTotal: n => `كتبت عن ${n} لعبة`, reportsEmpty: 'لم تكتب تقريرًا عن أي لعبة بعد.', showingMine: n => `تقاريرك: ${n}`, sortLabel: 'الترتيب', sortRecent: 'الأحدث', sortReports: 'الأكثر تقارير', sortTitle: 'أبجديًا', noReportsYet: n => `على جهازك، بلا تقارير بعد · ${n}`, noReportsHint: 'افتح أيًّا منها لتثبّت عليه، ثم كن أول من يكتب النتيجة.', installedBadge: 'DLSS 5 مثبّت', onPc: 'على جهازك', gpuLabel: 'كرت الشاشة', allGpus: 'كل كروت الشاشة', myGpu: model => `كرتي · ${model}`, mineEmpty: 'لا توجد تقارير من المجتمع لأي لعبة على جهازك حتى الآن.', mineTotal: n => `${n} من ألعابك عليها تقارير`, showingGpu: (model, n) => `${n} تقرير على ${model}`, allRoutes: 'كل الطرق', allApis: 'كل الواجهات', allResults: 'كل النتائج', working: 'تعمل', issues: 'تعمل مع مشاكل', broken: 'لا تعمل', mixed: 'نتائج مختلطة', clear: 'مسح الفلاتر', loading: 'جاري تحميل نتائج المجتمع…', empty: 'لا توجد تقارير مطابقة حتى الآن.', offline: 'خدمة المجتمع غير متاحة. تحقق من اتصالك وحاول مجددًا.', slowLoading: 'خادم المجتمع بطيء الآن. ما زلنا ننتظره…', savedChecking: (at) => `تُعرض النتائج المحفوظة في ${at}. جارٍ البحث عن نتائج أحدث…`, staleResults: (at, why) => `تُعرض النتائج المحفوظة في ${at}. ${why}`,
       reports: n => `${n} تقرير`, comments: n => `${n} تعليق`, noComments: 'لا توجد تعليقات بعد.', updated: 'التحديث المباشر يعمل أثناء فتح هذه البطاقة.',
       share: 'شارك نتيجتك', shareHint: 'شارك نتيجتك وساعد المجتمع.', why: 'بلاغك يحسّن التوافق للجميع.', routeUsed: 'طريقة التثبيت المستخدمة', choose: 'اختر…', unknown: 'لا نتائج بعد', yourResult: 'نتيجتك', optionalComment: 'تعليق اختياري', sent: 'البيانات التي سيتم إرسالها', cancel: 'إلغاء', submit: 'إرسال التقرير', submitting: 'جاري الإرسال…', chooseRoute: 'اختر طريقة التثبيت التي استخدمتها فعليًا.', chooseVerdict: 'اختر نتيجتك.', sentOk: 'تمت إضافة تقريرك إلى المجتمع.',
       profile: 'ملف المجتمع', profileHint: 'تظهر صورتك الثابتة واسمك بجانب تعليقاتك. يمكن تغيير الاسم مرة كل أسبوع.', displayName: 'اسم العرض', chooseIcon: 'اختر صورة', save: 'حفظ الملف', saved: 'تم حفظ الملف.', adminMode: 'وضع الإدارة', adminModeHint: 'ستُرسل ردودك باسمك وصورتك الرسمية مع شارة ADMIN.', adminLogout: 'تسجيل الخروج من وضع الإدارة', adminLoggedOut: 'تم تسجيل الخروج من وضع الإدارة.', unnamed: 'مجهول', addGame: 'إضافة إلى الألعاب المختبرة من المجتمع', reactionFailed: 'تعذر حفظ التفاعل.',
@@ -376,18 +376,36 @@
     applyLanguage();
     $('communityNotice').textContent = text().loading;
     $('communityRefresh').disabled = true;
+    // Linux fork: a slow server is said to be slow while the page waits for
+    // it, rather than looking like a page that never finished loading.
+    const slowHint = setTimeout(() => {
+      if (ticket === state.renderTicket && $('communityNotice').textContent === text().loading) {
+        $('communityNotice').textContent = text().slowLoading || L.en.slowLoading;
+      }
+    }, 8000);
     const filters = { ...state.filters, fresh: fresh || undefined };
     // A filter an older server does not know would be ignored in silence, so
     // it goes only to a server that said it can do it.
     if (!state.features.includes('gpu')) delete filters.gpu;
     if (!state.features.includes('sort')) delete filters.sort;
     const scope = state.features.includes('mine') ? state.scope : 'all';
+    // Linux fork: the community server can take half a minute to answer. The
+    // results this view got last time are painted at once, marked as saved,
+    // and the fresh answer replaces them when it comes.
+    let answered = false;
+    if (scope === 'all' && window.lab.communityCardsKept) {
+      window.lab.communityCardsKept(filters).then((kept) => {
+        if (kept?.ok && !answered && ticket === state.renderTicket) paintSaved(kept);
+      }).catch(() => {});
+    }
     const [response] = await Promise.all([
       scope === 'all' ? window.lab.communityCards(filters) : window.lab.communitySearch(filters, scope),
       syncOwnReports().catch(() => false)
     ]);
     if (ticket !== state.renderTicket) return;
     $('communityRefresh').disabled = false;
+    answered = true;
+    clearTimeout(slowHint);
     if (!response?.ok) {
       $('communityCards').innerHTML = '';
       // A count from the last successful load would be a claim about a list
@@ -440,6 +458,30 @@
       ? state.library.filter(game => !state.cards.some(card => card.local === game)) : [];
     $('communityNotice').textContent = state.cards.length || state.unreported.length ? ''
       : scope === 'mine' ? s.mineEmpty : scope === 'reports' ? s.reportsEmpty : s.empty;
+    // Linux fork: the server could not be reached and these are the results
+    // kept from the last time it answered. Say so, and when that was.
+    if (response.stale) {
+      const at = new Date(response.stale.at).toLocaleString(window.i18n?.getLang?.() || undefined, { dateStyle: 'medium', timeStyle: 'short' });
+      $('communityNotice').textContent = (s.staleResults || L.en.staleResults)(at, response.stale.message);
+    }
+    paintCards();
+  }
+
+  // Saved results, shown while the fresh ones are on their way. They do not
+  // touch what the server says it can filter by: that is only ever learned
+  // from a live answer, or a remembered filter could be dropped in silence.
+  function paintSaved(kept) {
+    state.cards = kept.cards || [];
+    state.library = [];
+    state.unreported = [];
+    for (const card of state.cards) {
+      card.local = null;
+      state.art[card.key] = card.art ? { cover: card.art.hero || card.art.poster, poster: card.art.poster || card.art.hero, palette: null } : null;
+    }
+    const s = text();
+    $('communityGameTotal').textContent = s.gameTotal(Number(kept.total) || 0);
+    const at = new Date(kept.savedAt).toLocaleString(window.i18n?.getLang?.() || undefined, { dateStyle: 'medium', timeStyle: 'short' });
+    $('communityNotice').textContent = (s.savedChecking || L.en.savedChecking)(at);
     paintCards();
   }
 

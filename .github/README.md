@@ -50,8 +50,9 @@ On first run the app downloads the DLSS 5 runtime it needs from upstream's relea
 - **Updates itself and its RenoDX add-ons from inside the app** (About → Updates). Nothing happens until you press a button and confirm.
   - **The app:** downloads the next fork release and checks it against both GitHub's published digest and the release's `SHA256SUMS.txt`. Then it installs it the way you installed it, and restarts. An AppImage replaces itself; an rpm or deb goes through `dnf` or `apt`, and your system asks for your password.
   - **RenoDX add-ons:** a newer build than this release ships is checked against GitHub's digest and must be a 64-bit Windows add-on before it is used. **Back to** returns to the shipped build.
+  - **RenoDX in games you already set up:** the panel lists the copy in each game. **Update** replaces the older builds this app put there with the current one, once you confirm and with the game closed. A build you added yourself, one you picked on the Add-ons page, or a newer one is left as it is. Restore still brings back each game's own files.
 - **Keeps up with upstream.** The Updates panel shows whether the original has a newer release. Upstream changes reach Linux through a new fork release, which the app can then install.
-- **Has the same opt-in Community page and live chat as upstream,** on upstream's server.
+- **Has the same opt-in Community page and live chat as upstream,** on upstream's server. When that server is slow or down, the tabs say so and show the last results they loaded, with the time they're from.
 
 ## Routes on Linux
 
@@ -98,7 +99,7 @@ scripts/sync-upstream.sh          # report what upstream has that this branch do
 scripts/sync-upstream.sh --pull   # rebase onto upstream, then run the tests
 ```
 
-Release notes: [v2.2.9-linux.3](../docs/releases/v2.2.9-linux.3.md) · [v2.2.9-linux.2](../docs/releases/v2.2.9-linux.2.md) · [all releases](https://github.com/Nicholasvoador/DLSS5-Swapper-Linux-Support/releases)
+Release notes: [v2.2.9-linux.4](../docs/releases/v2.2.9-linux.4.md) · [v2.2.9-linux.3](../docs/releases/v2.2.9-linux.3.md) · [v2.2.9-linux.2](../docs/releases/v2.2.9-linux.2.md) · [all releases](https://github.com/Nicholasvoador/DLSS5-Swapper-Linux-Support/releases)
 
 ## Build from source
 
@@ -122,6 +123,8 @@ Features, the emulator list, the 38 languages and screenshots are all upstream's
 ## Community and privacy
 
 The Community page and chat are opt-in, and they use upstream's server (`5.rakanki.com`), run by upstream's author. A report is sent only after you review it, and it holds only the fields shown in its dialog: game, route, rendering API, result, optional comment, GPU, driver, CPU, OS and app version. Upstream's README has the [details](https://github.com/rakanki911/DLSS5-Swapper#community-and-privacy).
+
+So the tabs have something to show while that server is down, this build keeps the last game list, GPU list and newest chat page it loaded. They're saved on your PC only (`~/.config/dlss5-swapper/community-last-good.json`), and nothing older than a week is shown.
 
 ## Credits
 
